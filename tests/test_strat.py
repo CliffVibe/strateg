@@ -161,6 +161,18 @@ class StratTest(unittest.TestCase):
         self.assertIn("вариантов 2", out)
         self.assertIn("оставить как есть", out)
 
+    def test_test_plan_compares_mde_with_breakeven(self):
+        # T02: MDE пилота был больше порога окупаемости — red-team заметил только на strategy
+        body = ("# План проверки\n## Ожидаемое изменение\n{x}\n## С чем сравниваем\nA/B\n"
+                "## Срок наблюдения\n90 дней\n## Нежелательные последствия\nжалобы\n")
+        f = self.p / "work" / "test-plan.md"
+        f.write_text(body.format(x="Отток −0,3 п.п., MDE 0,2 п.п."), encoding="utf-8")
+        self.assertIn("MDE сравнён с порогом окупаемости", self.ok("check"))
+        self.ok("source", "add", "--type", "calc", "--title", "Расчёт выборки", "--path", "work/calc/n.py")
+        self.ok("claim", "add", "--kind", "forecast", "--text", "MDE 0,2 п.п. при 380 тыс./группу", "--sources", "S001")
+        f.write_text(body.format(x="MDE 0,2 п.п. ≤ порога окупаемости 0,25 п.п. [C001]"), encoding="utf-8")
+        self.assertNotIn("порогом окупаемости", self.ok("check"))
+
     # ── стоимость ──
     def _transcript(self):
         t = self.tmp / "sess.jsonl"

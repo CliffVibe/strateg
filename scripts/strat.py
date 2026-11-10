@@ -742,6 +742,11 @@ def cmd_check(a):
                 miss = [h for h in needed if not re.search(rf"^#+\s.*{h}", t, flags=re.M | re.I)]
                 if miss:
                     problems.append(f"{name}: нет разделов {', '.join(miss)}")
+                # T02: выборка пилота не видела порог окупаемости (MDE > порога) — пилот ничего бы не решил
+                if name == "test-plan.md" and not re.search(
+                        r"^.*\bMDE\b.*окупаем.*\[C\d{3}|^.*окупаем.*\bMDE\b.*\[C\d{3}", t, flags=re.M | re.I):
+                    warnings.append("test-plan.md: нет строки, где MDE сравнён с порогом окупаемости со ссылкой на расчёт "
+                                    "[C…] — посчитай кодом (analyst), что MDE ≤ порога")
     synth_facts = [c["id"] for c in active if c["kind"] == "fact" and c.get("sources")
                    and all(sources.get(s, {}).get("type") == "synthetic" for s in c["sources"])]
     if synth_facts:
