@@ -788,6 +788,7 @@ def transcript_usage(path: Path) -> dict:
     if sub.is_dir():
         files += sorted(sub.glob("*.jsonl"))
     for f in files:
+        role = "sub" if f.parent.name == "subagents" else "main"
         for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
             try:
                 d = json.loads(line)
@@ -802,7 +803,7 @@ def transcript_usage(path: Path) -> dict:
                     if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
                         tools[b["id"]] = b.get("name", "")
                 seen[m["id"]] = {"model": m.get("model", "unknown"), "usage": m["usage"],
-                                 "ts": prev.get("ts") or d.get("timestamp"), "tools": tools}
+                                 "ts": prev.get("ts") or d.get("timestamp"), "tools": tools, "role": role}
     return seen
 
 
@@ -879,14 +880,15 @@ def usage_cost(msgs: dict, pricing: dict) -> dict:
         for k, val in [("input", inp), ("output", out), ("cache_write", cw), ("cache_read", cr), ("web_searches", ws)]:
             tot[k] += val
         tot["usd"] += usd
-        bm = tot["by_model"].setdefault(model, {"usd": 0.0, "messages": 0})
-        bm["usd"] += usd
-        bm["messages"] += 1
+        for bm in (tot["by_model"].setdefault(model, {"usd": 0.0, "messages": 0}),
+                   tot.setdefault("by_role", {}).setdefault(v.get("role", "main"), {"usd": 0.0, "messages": 0})):
+            bm["usd"] += usd
+            bm["messages"] += 1
     return tot
 
 
 def cost_totals(p: Path) -> dict:
-    agg = {"usd": 0.0, "sessions": 0, "by_model": {}, "web_searches": 0, "web_fetches": 0}
+    agg = {"usd": 0.0, "sessions": 0, "by_model": {}, "by_role": {}, "web_searches": 0, "web_fetches": 0}
     for f in sorted((p / "costs").glob("*.json")):
         d = read_json(f, {})
         agg["usd"] += d.get("usd", 0)
@@ -896,6 +898,10 @@ def cost_totals(p: Path) -> dict:
         for m, v in d.get("by_model", {}).items():
             agg["by_model"].setdefault(m, 0.0)
             agg["by_model"][m] += v.get("usd", 0)
+        for r, v in d.get("by_role", {}).items():
+            br = agg["by_role"].setdefault(r, {"usd": 0.0, "messages": 0})
+            br["usd"] += v.get("usd", 0)
+            br["messages"] += v.get("messages", 0)
     for f in sorted((p / "costs").glob("*.manual.jsonl")):  # внешние расходы: Jev, API поиска, время человека
         for r in read_jsonl(f):
             agg["usd"] += r.get("usd", 0)
@@ -911,6 +917,18 @@ def record_session_cost(p: Path, transcript: Path, session_id: str):
     return tot
 
 
+def role_line(agg: dict) -> str:
+    """Доля основного агента: в T02 — 82% стоимости (длинный контекст на сильной модели), а оценка
+    бюджета на воротах plan считала только субагентов."""
+    br = agg.get("by_role") or {}
+    if not br:
+        return ""
+    m, s = br.get("main", {"usd": 0, "messages": 0}), br.get("sub", {"usd": 0, "messages": 0})
+    per = f", ≈${m['usd'] / m['messages']:.3f} за ход" if m["messages"] else ""
+    return (f"основной агент ${m['usd']:.2f} ({pct(m['usd'], agg['usd'] or 1)}; {m['messages']} отв.{per}) · "
+            f"субагенты ${s['usd']:.2f} ({s['messages']} отв.)")
+
+
 def cmd_cost(a):
     if a.transcript:
         p = pdir(a.project)
@@ -923,6 +941,8 @@ def cmd_cost(a):
           f"чтений страниц: {agg['web_fetches']}")
     for m, v in sorted(agg["by_model"].items(), key=lambda x: -x[1]):
         print(f"  {m:28} ${v:.4f}")
+    if line := role_line(agg):
+        print(f"  {line}")
     pr = load_pricing()
     print(f"Цены: {pr.get('source', '?')} (на {pr.get('as_of', '?')}). На подписке это оценка в ценах API.")
 
@@ -1093,6 +1113,7 @@ def how_markdown(p: Path) -> str:
     budget = st.get("budget_usd")
     L.append(f"- **Стоимость:** ${cost['usd']:.2f}" + (f" из бюджета ${budget}" if budget else "")
              + (f"; по моделям: {models}" if models else "")
+             + (f"; {role_line(cost)}" if role_line(cost) else "")
              + f"; веб-поисков {cost['web_searches']}, чтений страниц {cost['web_fetches']} (с субагентами). "
              "На подписке — оценка в ценах API (`config/pricing.json`).")
     return "\n".join(L)

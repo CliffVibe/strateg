@@ -425,6 +425,9 @@ class StratTest(unittest.TestCase):
         self.ok("hook", "stop", stdin=json.dumps({"transcript_path": str(t), "session_id": "s5"}))
         d = json.loads((self.p / "costs" / "s5.json").read_text(encoding="utf-8"))
         self.assertEqual((d["web_searches"], d["web_fetches"]), (2, 1))
+        # доля основного агента — для оценки бюджета на воротах plan (T02: 82% стоимости)
+        self.assertEqual({r: v["messages"] for r, v in d["by_role"].items()}, {"main": 1, "sub": 2})
+        self.assertIn("основной агент $", self.ok("cost"))
         # ворота: агент спросил в чате и сразу дал --approved — записей gate нет, но ворота пройдены
         self.ok("stage", "framing", "--approved", "--note", "бриф ок")
         self.ok("stage", "plan")
