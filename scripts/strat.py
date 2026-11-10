@@ -50,6 +50,11 @@ GATES = {"intake": "Подтвердите постановку задачи (br
          "choose": "Выберите вариант (work/options.md)",
          "strategy": "Примите стратегию или скажите, что исправить"}
 SOURCE_TYPES = ["web", "doc", "data", "interview", "user", "calc", "synthetic"]
+# Вид снимка (T02: снимок часто был конспектом WebFetch или выдачей поиска, а check считал его равноценным странице)
+SNAPSHOT_KINDS = {"page": "текст страницы или документа дословно",
+                  "summary": "пересказ/конспект (в т.ч. ответ WebFetch, обработанный моделью)",
+                  "search": "выдержка из поисковой выдачи"}
+WEAK_SNAPSHOTS = {"summary", "search"}
 CLAIM_KINDS = ["fact", "hypothesis", "forecast", "assumption"]
 STATUSES = ["active", "superseded", "retracted"]
 
@@ -467,6 +472,8 @@ def cmd_source(a):
         sp = Path(a.snapshot)
         if not sp.exists():
             die(f"Нет файла {sp}")
+        if a.snapshot_kind not in SNAPSHOT_KINDS:
+            die("Укажи вид снимка --snapshot-kind: " + "; ".join(f"{k} — {v}" for k, v in SNAPSHOT_KINDS.items()))
         digest = sha256_file(sp)
         snap = str(sp)
     # идемпотентность: тот же URL/файл с тем же содержимым — не дублируем
@@ -484,8 +491,8 @@ def cmd_source(a):
     row = {
         "id": sid, "type": a.type, "title": a.title, "url": a.url, "path": a.path,
         "publisher": a.publisher, "published": a.date, "retrieved_at": now(),
-        "quote": a.quote, "snapshot": snap, "sha256": digest, "reliability": a.reliability,
-        "note": a.note,
+        "quote": a.quote, "snapshot": snap, "snapshot_kind": a.snapshot_kind if snap else None, "sha256": digest,
+        "reliability": a.reliability, "note": a.note,
     }
     probs, warns = source_problems(p, row)
     if probs:  # ошибку видно сразу, а не на этапе package
@@ -499,6 +506,18 @@ def cmd_source(a):
 
 
 # ───────────────────────── утверждения ─────────────────────────
+def weak_fact_warning(c: dict, sources: dict) -> str | None:
+    """Факт с уверенностью выше medium, у которого все снимки — пересказ или выдача поиска."""
+    if c.get("kind") != "fact" or c.get("confidence") != "high":
+        return None
+    srcs = [sources[s] for s in c.get("sources", []) if s in sources and sources[s].get("type") != "synthetic"]
+    if srcs and all(s.get("snapshot_kind") in WEAK_SNAPSHOTS for s in srcs):
+        return (f"{c['id']}: факт с уверенностью high держится только на пересказе/выдаче поиска "
+                f"({', '.join(s['id'] + ':' + s['snapshot_kind'] for s in srcs)}) — не выше medium, "
+                "пока нет текста страницы (--snapshot-kind page)")
+    return None
+
+
 def cmd_claim(a):
     p = pdir(a.project)
     rows = read_jsonl(p / "claims.jsonl")
@@ -528,10 +547,13 @@ def cmd_claim(a):
         if a.kind == "forecast" and not (src or deps):
             die("Прогноз должен опираться на источник или на допущения (--depends)")
         cid = next_id(rows, "C")
-        rows.append({"id": cid, "kind": a.kind, "text": a.text, "sources": src, "depends_on": deps,
-                     "confidence": a.confidence, "section": a.section, "status": "active",
-                     "created_at": now(), "by": a.by})
+        row = {"id": cid, "kind": a.kind, "text": a.text, "sources": src, "depends_on": deps,
+               "confidence": a.confidence, "section": a.section, "status": "active",
+               "created_at": now(), "by": a.by}
+        rows.append(row)
         write_jsonl(p / "claims.jsonl", rows)
+        if w := weak_fact_warning(row, sources):
+            print(f"⚠ {w}")
         journal(p, f"утверждение {cid} [{a.kind}]: {a.text[:120]}", "claim")
         print(f"✓ {cid}")
         return
@@ -686,6 +708,8 @@ def cmd_check(a):
             if srcs and all(s["type"] == "web" and not s.get("snapshot") for s in srcs):
                 warnings.append(f"{c['id']}: факт держится только на веб-источниках без снимка "
                                 f"({', '.join(s['id'] for s in srcs)}) — проверить его потом будет нельзя")
+        if w := weak_fact_warning(c, sources):
+            warnings.append(w)
     refs = doc_refs(p)
     for ref, docs in refs.items():
         if ref.startswith("S") and ref not in sources:
@@ -1384,6 +1408,8 @@ def main(argv=None):
     s.add_argument("action", choices=["add", "list"]); s.add_argument("--type"); s.add_argument("--title")
     s.add_argument("--url"); s.add_argument("--path"); s.add_argument("--publisher"); s.add_argument("--date")
     s.add_argument("--quote"); s.add_argument("--snapshot"); s.add_argument("--reliability", choices=["high", "medium", "low"])
+    s.add_argument("--snapshot-kind", dest="snapshot_kind", choices=list(SNAPSHOT_KINDS),
+                   help="вид снимка (обязателен со --snapshot): " + "; ".join(f"{k} — {v}" for k, v in SNAPSHOT_KINDS.items()))
     s.add_argument("--note"); s.set_defaults(f=cmd_source)
 
     s = sp.add_parser("claim", help="утверждения: add|list|retract|supersede")

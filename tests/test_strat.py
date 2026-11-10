@@ -280,14 +280,34 @@ class StratTest(unittest.TestCase):
     def test_quote_must_be_in_snapshot(self):
         snap = self._snap()
         out = self.fails("source", "add", "--type", "web", "--title", "РБК", "--url", "https://news.rbc.ru/x",
-                         "--snapshot", snap, "--quote", "Число абонентов eSIM выросло втрое")
+                         "--snapshot", snap, "--snapshot-kind", "page", "--quote", "Число абонентов eSIM выросло втрое")
         self.assertIn("цитата не найдена", out)
         # кавычки, регистр, пробелы, тире и пропуск «…» не мешают
         self.assertIn("S001", self.ok("source", "add", "--type", "web", "--title", "РБК", "--url", "https://news.rbc.ru/x",
-                                      "--snapshot", snap, "--quote", "«число абонентов   eSIM выросло … до 3 млн человек»"))
+                                      "--snapshot", snap, "--snapshot-kind", "page",
+                                      "--quote", "«число абонентов   eSIM выросло … до 3 млн человек»"))
         self.ok("check")
         Path(snap).write_text("подменённый текст", encoding="utf-8")  # хук не даст, но человек или сбой могут
         self.assertIn("снимок изменён", self.fails("check"))
+
+    def test_snapshot_kind_limits_fact_confidence(self):
+        # T02: снимок часто был конспектом WebFetch или выдачей поиска, а check считал его равноценным странице
+        snap = self._snap()
+        web = ["source", "add", "--type", "web", "--snapshot", snap, "--quote", "до 3 млн человек"]
+        self.assertIn("--snapshot-kind", self.fails(*web, "--title", "РБК", "--url", "https://news.rbc.ru/x"))
+        self.ok(*web, "--snapshot-kind", "summary", "--title", "РБК", "--url", "https://news.rbc.ru/x")
+        self.ok(*web, "--snapshot-kind", "search", "--title", "Выдача", "--url", "https://ya.ru/search?x")
+        self.ok(*web, "--snapshot-kind", "page", "--title", "Страница", "--url", "https://rbc.ru/x")
+        self.assertEqual(json.loads((self.p / "sources.jsonl").read_text(encoding="utf-8").splitlines()[0])["snapshot_kind"],
+                         "summary")
+        fact = ["claim", "add", "--kind", "fact", "--text", "eSIM — 3 млн"]
+        self.assertIn("не выше medium", self.ok(*fact, "--sources", "S001,S002", "--confidence", "high"))  # C001
+        self.assertNotIn("⚠", self.ok(*fact, "--sources", "S001", "--confidence", "medium"))             # C002
+        self.assertNotIn("⚠", self.ok(*fact, "--sources", "S001,S003", "--confidence", "high"))          # C003: есть page
+        out = self.ok("check")  # предупреждение, а не ошибка
+        self.assertIn("C001: факт с уверенностью high держится только на пересказе/выдаче поиска", out)
+        self.assertNotIn("C002:", out)
+        self.assertNotIn("C003:", out)
 
     def test_quote_in_pdf_is_flagged_for_verifier(self):
         (self.p / "inputs" / "r.pdf").write_bytes(b"%PDF-1.4")
