@@ -1,0 +1,11 @@
+.env
+.env.*
+!.env.example
+__pycache__/
+*.pyc
+.claude/settings.local.json
+projects/.active
+projects/*/costs/*.json
+!projects/demo-*/costs/*.json
+*.tmp
+.DS_Store

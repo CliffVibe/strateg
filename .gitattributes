@@ -1,0 +1,7 @@
+# Одинаковые переводы строк на Windows, macOS и Linux (переносимость, T07)
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.pdf binary
+*.docx binary
+*.xlsx binary
