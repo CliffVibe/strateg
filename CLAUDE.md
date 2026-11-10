@@ -11,6 +11,7 @@
 - Хуки (`.claude/settings.json`): `SessionStart` показывает состояние проекта; `PostToolUse` на WebFetch/Read
   ищет внедрённые инструкции; `PreToolUse` (Write/Edit и команды Bash/PowerShell) защищает `inputs/`,
   `snapshots/` (новый снимок создать можно, менять — нет), реестры и правила; материал в `inputs/` — `strat input add`;
+  при превышении бюджета `PreToolUse` блокирует WebSearch/WebFetch/субагентов, пока человек не поднимет лимит (`strat budget`);
   `Stop` пишет стоимость сессии из транскрипта.
 - Если хук заблокировал действие — не обходи его другим инструментом. Сделай через `scripts/strat.py`
   или спроси человека.

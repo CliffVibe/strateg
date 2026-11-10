@@ -239,6 +239,97 @@ class StratTest(unittest.TestCase):
         out = self.ok("hook", "session-start", stdin="{}")
         self.assertIn("этап «intake»", out)
 
+    # ── проверка источников кодом ──
+    def _snap(self, text="Число абонентов eSIM выросло в 2,5 раза за 2025 год — до 3 млн человек."):
+        f = self.p / "snapshots" / "site-2026-11.md"
+        f.write_text(f"# Новость\nURL: https://news.rbc.ru/x\n\n{text}\n", encoding="utf-8")
+        return str(f)
+
+    def test_quote_must_be_in_snapshot(self):
+        snap = self._snap()
+        out = self.fails("source", "add", "--type", "web", "--title", "РБК", "--url", "https://news.rbc.ru/x",
+                         "--snapshot", snap, "--quote", "Число абонентов eSIM выросло втрое")
+        self.assertIn("цитата не найдена", out)
+        # кавычки, регистр, пробелы, тире и пропуск «…» не мешают
+        self.assertIn("S001", self.ok("source", "add", "--type", "web", "--title", "РБК", "--url", "https://news.rbc.ru/x",
+                                      "--snapshot", snap, "--quote", "«число абонентов   eSIM выросло … до 3 млн человек»"))
+        self.ok("check")
+        Path(snap).write_text("подменённый текст", encoding="utf-8")  # хук не даст, но человек или сбой могут
+        self.assertIn("снимок изменён", self.fails("check"))
+
+    def test_quote_in_pdf_is_flagged_for_verifier(self):
+        (self.p / "inputs" / "r.pdf").write_bytes(b"%PDF-1.4")
+        out = self.ok("source", "add", "--type", "doc", "--title", "Отчёт", "--path", "inputs/r.pdf", "--quote", "x")
+        self.assertIn("verifier", out)
+
+    def test_allowed_sources(self):
+        self.assertIn("разрешённые источники не заданы",
+                      self.ok("source", "add", "--type", "web", "--title", "A", "--url", "https://a.ru") + self.ok("check"))
+        self.ok("allow", "add", "rbc.ru", "rosstat.gov.ru")
+        self.ok("source", "add", "--type", "web", "--title", "РБК", "--url", "https://www.news.rbc.ru/1")
+        self.assertIn("не входит в разрешённые", self.fails("source", "add", "--type", "web", "--title", "B",
+                                                             "--url", "https://evil-rbc.ru/1"))
+        self.assertIn("S001: домен не входит", self.fails("check"))  # a.ru добавлен до списка
+
+    def test_web_fact_without_snapshot_warns(self):
+        self.ok("source", "add", "--type", "web", "--title", "A", "--url", "https://a.ru")
+        self.ok("claim", "add", "--kind", "fact", "--text", "x", "--sources", "S001")
+        self.assertIn("без снимка", self.ok("check"))
+
+    # ── бюджет и стоимость по проектам ──
+    def _transcript_ts(self, rows):
+        t = self.tmp / "sess-ts.jsonl"
+        lines = []
+        for mid, ts, out_tokens in rows:
+            u = {"input_tokens": 0, "output_tokens": out_tokens, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+            lines.append(json.dumps({"type": "assistant", "timestamp": ts,
+                                     "message": {"id": mid, "model": "claude-sonnet-5-5", "usage": u}}))
+        t.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return t
+
+    def test_cost_is_split_by_active_project(self):
+        self.ok("new", "other", "--title", "Другой")
+        (self.tmp / "projects" / ".activity.jsonl").write_text(
+            '{"at": "2026-01-01T00:00:00+00:00", "slug": "demo"}\n{"at": "2026-06-01T00:00:00+00:00", "slug": "other"}\n',
+            encoding="utf-8")
+        t = self._transcript_ts([("m0", "2025-12-01T00:00:00Z", 100000),   # до /start — разработка, ничья
+                                 ("m1", "2026-03-01T00:00:00Z", 1000),     # demo
+                                 ("m2", "2026-07-01T00:00:00Z", 2000)])    # other
+        self.ok("hook", "stop", stdin=json.dumps({"transcript_path": str(t), "session_id": "s9"}))
+        demo = json.loads((self.p / "costs" / "s9.json").read_text(encoding="utf-8"))
+        other = json.loads((self.tmp / "projects" / "other" / "costs" / "s9.json").read_text(encoding="utf-8"))
+        self.assertEqual((demo["messages"], demo["output"]), (1, 1000))
+        self.assertEqual((other["messages"], other["output"]), (1, 2000))
+
+    def test_budget_blocks_expensive_tools_until_human_raises_it(self):
+        t = self._transcript_ts([("m1", "2099-01-01T00:00:00Z", 1_000_000)])  # $10 на sonnet при бюджете $5
+        web = json.dumps({"tool_name": "WebSearch", "tool_input": {"query": "x"}, "transcript_path": str(t), "session_id": "s1"})
+        out = self.fails("hook", "protect", code=2, stdin=web)
+        self.assertIn("Бюджет проекта исчерпан", out)
+        self.ok("hook", "protect", stdin=json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(self.p / "work" / "a.md")}}))
+        self.fails("budget", "20", code=3)  # без согласия человека — нельзя
+        self.ok("budget", "20", "--approved", "--note", "человек разрешил ещё $15")
+        self.ok("hook", "protect", stdin=web)
+        self.assertIn("бюджет $5.0 → $20.0", (self.p / "journal.md").read_text(encoding="utf-8"))
+
+    # ── «Как получен результат» из данных ──
+    def test_how_section_is_generated_from_data(self):
+        self._chain()
+        self.ok("stage", "framing", "--approved", "--note", "бриф ок")
+        rep = self.p / "report.md"
+        rep.write_text("# Итог\nПотери [C003].\n## 7. Как получен результат\n<!-- strat:how -->\nЛюди помогли.\n",
+                       encoding="utf-8")
+        self.ok("render")
+        self.ok("render")  # повторный рендер не дублирует блок
+        md = rep.read_text(encoding="utf-8")
+        self.assertEqual(md.count("<!-- /strat:how -->"), 1)
+        self.assertIn("3 действующих — факты 1 (33%)", md)
+        self.assertIn("решений и подтверждений 1", md)
+        self.assertIn("Люди помогли.", md)
+        h = (self.p / "report.html").read_text(encoding="utf-8")
+        self.assertNotIn("<!--", h)
+        self.assertIn("Утверждения:", h)
+
     # ── отчёт ──
     def test_render_links_sources_and_marks_kinds(self):
         self.ok("source", "add", "--type", "web", "--title", "Росстат", "--url", "https://rosstat.gov.ru")

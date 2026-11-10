@@ -42,7 +42,7 @@
       { "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook session-start", "timeout": 15 } ] }
     ],
     "PreToolUse": [
-      { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell",
+      { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|WebSearch|WebFetch|Agent|Task",
         "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook protect", "timeout": 10 } ] }
     ],
     "PostToolUse": [

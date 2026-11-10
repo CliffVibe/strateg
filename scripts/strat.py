@@ -18,6 +18,7 @@ import re
 import shlex
 import shutil
 import sys
+import urllib.parse
 from pathlib import Path
 
 ROOT = Path(os.environ.get("STRAT_ROOT") or Path(__file__).resolve().parent.parent)
@@ -25,6 +26,8 @@ PROJECTS = ROOT / "projects"
 TEMPLATES = ROOT / "templates"
 CONFIG = ROOT / "config"
 ACTIVE = PROJECTS / ".active"
+ACTIVITY = PROJECTS / ".activity.jsonl"  # локальная история активаций (в .gitignore)
+BUDGET_TOOLS = {"WebSearch", "WebFetch", "Agent", "Task"}  # дорогие действия: блокируются при превышении бюджета
 
 STAGES = ["intake", "framing", "plan", "collect", "synthesize", "options", "choose",
           "strategy", "package", "support"]
@@ -158,6 +161,7 @@ def cmd_new(a):
     (p / "journal.md").write_text(f"# Журнал проекта «{a.title or slug}»\n\n", encoding="utf-8")
     journal(p, "проект создан", "system")
     ACTIVE.write_text(slug, encoding="utf-8")
+    log_activation(slug)
     print(f"✓ Проект {slug} создан и сделан активным: {p.relative_to(ROOT)}")
 
 
@@ -165,7 +169,9 @@ def cmd_use(a):
     slug = slugify(a.slug)
     if not (PROJECTS / slug).is_dir():
         die(f"Нет проекта {slug}. Есть: {', '.join(list_projects()) or '—'}")
-    ACTIVE.write_text(slug, encoding="utf-8")
+    if active_slug(required=False) != slug:
+        ACTIVE.write_text(slug, encoding="utf-8")
+        log_activation(slug)
     print(f"✓ Активный проект: {slug}")
 
 
@@ -328,6 +334,82 @@ def cmd_input(a):
     print(f"✓ inputs/{name}")
 
 
+# ── проверка источников кодом (детерминированно; verifier проверяет только смысл и тип) ──
+TEXT_EXT = {".md", ".txt", ".csv", ".tsv", ".json", ".jsonl", ".html", ".htm", ".xml"}
+
+
+def norm_text(s: str) -> str:
+    """Нормализация для сравнения цитаты со снимком: регистр, ё, кавычки, тире, разметка, пробелы."""
+    s = s.lower().replace("ё", "е")
+    s = re.sub(r"[«»“”„\"'‘’`]", "", s)
+    s = re.sub(r"[‐‑‒–—―−]", "-", s)
+    s = re.sub(r"[*_#>|]", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def quote_found(quote: str, text: str) -> bool:
+    """Цитата есть в тексте; «…» / «...» / «[...]» — пропуск: части ищутся по порядку."""
+    t, pos = norm_text(text), 0
+    for frag in re.split(r"\[\.\.\.\]|\[…\]|\.\.\.|…", quote):
+        f = norm_text(frag)
+        if not f:
+            continue
+        i = t.find(f, pos)
+        if i < 0:
+            return False
+        pos = i + len(f)
+    return True
+
+
+def resolve_path(p: Path, rel: str | None) -> Path | None:
+    if not rel:
+        return None
+    q = Path(rel)
+    for c in ([q] if q.is_absolute() else [p / q, ROOT / q]):
+        if c.exists():
+            return c
+    return None
+
+
+def source_problems(p: Path, s: dict) -> tuple[list[str], list[str]]:
+    """Ошибки и предупреждения по одному источнику: снимок на месте и не изменён, цитата в нём есть."""
+    problems, warns, sid = [], [], s.get("id", "новый источник")
+    f = resolve_path(p, s.get("snapshot") or s.get("path"))
+    if s.get("snapshot"):
+        if not f:
+            problems.append(f"{sid}: нет файла снимка {s['snapshot']}")
+        elif s.get("sha256") and sha256_file(f) != s["sha256"]:
+            problems.append(f"{sid}: снимок изменён после регистрации (sha256 не совпадает)")
+    if s.get("quote") and f and s.get("type") not in ("calc", "synthetic"):
+        if f.suffix.lower() in TEXT_EXT:
+            if not quote_found(s["quote"], f.read_text(encoding="utf-8", errors="ignore")):
+                problems.append(f"{sid}: цитата не найдена в {f.name} — приведи дословный фрагмент "
+                                "(пропуск можно обозначить «…»)")
+        else:
+            warns.append(f"{sid}: цитату в {f.suffix or 'файле'} код проверить не может — нужна проверка verifier")
+    return problems, warns
+
+
+def host_allowed(url: str | None, allowed: list[str]) -> bool:
+    if not url or not allowed or "*" in allowed:
+        return True
+    host = (urllib.parse.urlparse(url).hostname or "").lower().removeprefix("www.")
+    return any(host == d or host.endswith("." + d) for d in (x.lower().removeprefix("www.") for x in allowed))
+
+
+def cmd_allow(a):
+    """Разрешённые источники проекта (домены); «*» — любые открытые. Задаёт человек на интейке."""
+    p = pdir(a.project)
+    st = read_json(p / "state.json")
+    cur = st.setdefault("allowed_sources", [])
+    if a.action == "add":
+        new = [d.strip().lower().removeprefix("www.") for d in a.domains if d.strip()]
+        cur.extend(d for d in new if d not in cur)
+        write_json(p / "state.json", st)
+        journal(p, f"разрешённые источники: {', '.join(cur)}", "human")
+    print("Разрешённые источники: " + (", ".join(cur) or "не заданы (strat allow add <домен> | '*')"))
+
+
 def cmd_source(a):
     p = pdir(a.project)
     rows = read_jsonl(p / "sources.jsonl")
@@ -354,13 +436,23 @@ def cmd_source(a):
         if same_url or same_file:
             print(f"= {r['id']} (уже в реестре)")
             return
+    allowed = read_json(p / "state.json", {}).get("allowed_sources", [])
+    if a.type == "web" and not host_allowed(a.url, allowed):
+        die(f"Домен {urllib.parse.urlparse(a.url).hostname} не входит в разрешённые источники проекта "
+            f"({', '.join(allowed)}). Не используй его или спроси человека; после его «да»: strat allow add <домен>")
     sid = next_id(rows, "S")
-    rows.append({
+    row = {
         "id": sid, "type": a.type, "title": a.title, "url": a.url, "path": a.path,
         "publisher": a.publisher, "published": a.date, "retrieved_at": now(),
         "quote": a.quote, "snapshot": snap, "sha256": digest, "reliability": a.reliability,
         "note": a.note,
-    })
+    }
+    probs, warns = source_problems(p, row)
+    if probs:  # ошибку видно сразу, а не на этапе package
+        die("Источник не записан: " + "; ".join(probs))
+    for w in warns:
+        print(f"⚠ {w}")
+    rows.append(row)
     write_jsonl(p / "sources.jsonl", rows)
     journal(p, f"источник {sid}: {a.title}", "source")
     print(f"✓ {sid}")
@@ -538,6 +630,22 @@ def cmd_check(a):
         for d in c.get("depends_on", []):
             if claims.get(d, {}).get("status") != "active":
                 problems.append(f"{c['id']}: опирается на {d}, которое {claims.get(d, {}).get('status', 'не существует')}")
+    st0 = read_json(p / "state.json", {})
+    allowed = st0.get("allowed_sources", [])
+    for s in sources.values():
+        pr, wr = source_problems(p, s)
+        problems += pr
+        warnings += wr
+        if s["type"] == "web" and not host_allowed(s.get("url"), allowed):
+            problems.append(f"{s['id']}: домен не входит в разрешённые источники ({', '.join(allowed)})")
+    if not allowed and any(s["type"] == "web" for s in sources.values()):
+        warnings.append("разрешённые источники не заданы — strat allow add <домен> (или '*', если человек разрешил любые открытые)")
+    for c in active:
+        if c["kind"] == "fact":
+            srcs = [sources[s] for s in c.get("sources", []) if s in sources and sources[s]["type"] != "synthetic"]
+            if srcs and all(s["type"] == "web" and not s.get("snapshot") for s in srcs):
+                warnings.append(f"{c['id']}: факт держится только на веб-источниках без снимка "
+                                f"({', '.join(s['id'] for s in srcs)}) — проверить его потом будет нельзя")
     refs = doc_refs(p)
     for ref, docs in refs.items():
         if ref.startswith("S") and ref not in sources:
@@ -623,8 +731,56 @@ def transcript_usage(path: Path) -> dict:
                 continue
             m = d.get("message")
             if d.get("type") == "assistant" and isinstance(m, dict) and m.get("usage") and m.get("id"):
-                seen[m["id"]] = {"model": m.get("model", "unknown"), "usage": m["usage"]}
+                ts = seen.get(m["id"], {}).get("ts") or d.get("timestamp")
+                seen[m["id"]] = {"model": m.get("model", "unknown"), "usage": m["usage"], "ts": ts}
     return seen
+
+
+def parse_ts(s: str | None) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(s.replace("Z", "+00:00")) if s else None
+    except ValueError:
+        return None
+
+
+def log_activation(slug: str):
+    """История «какой проект был активен с какого момента» — по ней стоимость сессии делится между проектами."""
+    with ACTIVITY.open("a", encoding="utf-8") as f:
+        f.write(json.dumps({"at": now(), "slug": slug}, ensure_ascii=False) + "\n")
+
+
+def attribute_messages(msgs: dict) -> dict[str, dict]:
+    """Разложить сообщения сессии по проектам, активным в момент сообщения. Сообщения до первой активации
+    (разработка агента, разговор до /start) не относятся ни к какому проекту."""
+    events = sorted(((parse_ts(e.get("at")), e.get("slug")) for e in read_jsonl(ACTIVITY)), key=lambda x: x[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc))
+    events = [(t, s) for t, s in events if t]
+    current = active_slug(required=False)
+    out: dict[str, dict] = {}
+    for mid, v in msgs.items():
+        t = parse_ts(v.get("ts"))
+        if not events or not t:
+            slug = current  # нет истории активаций (старые проекты) или времени — как раньше: активному
+        else:
+            slug = None
+            for et, es in events:
+                if et <= t:
+                    slug = es
+                else:
+                    break
+        if slug and (PROJECTS / slug).is_dir():
+            out.setdefault(slug, {})[mid] = v
+    return out
+
+
+def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
+    """Стоимость сессии по проектам; файл каждой сессии перезаписывается целиком → без удвоения."""
+    res = {}
+    for slug, msgs in attribute_messages(transcript_usage(transcript)).items():
+        tot = usage_cost(msgs, load_pricing())
+        tot.update(session_id=session_id, updated_at=now(), transcript=str(transcript))
+        write_json(PROJECTS / slug / "costs" / f"{session_id}.json", tot)
+        res[slug] = tot
+    return res
 
 
 def usage_cost(msgs: dict, pricing: dict) -> dict:
@@ -739,6 +895,7 @@ def md_to_html(md: str, sources: dict, claims: dict) -> str:
             out.append("</table>")
             table = []
 
+    md = re.sub(r"<!--.*?-->", "", md, flags=re.S)  # служебные пометки (TODO шаблона, strat:how) — не в отчёт
     for line in md.splitlines():
         if m := re.match(r"^(#{1,4})\s+(.*)", line):
             flush()
@@ -780,14 +937,99 @@ th{background:#f0eee8;text-align:left}blockquote{border-left:4px solid #c9c3b4;m
 .k-fact{background:#1f3a29}.k-hypothesis{background:#3f3517}.k-forecast{background:#1e2d45}.k-assumption{background:#333}}"""
 
 
+JOURNAL_RE = re.compile(r"^- `([^`]+)` \*\*(\w+)\*\* — (.*)$")
+HOW_START, HOW_END = "<!-- strat:how -->", "<!-- /strat:how -->"
+
+
+def pct(n: int, total: int) -> str:
+    return f"{round(100 * n / total)}%" if total else "—"
+
+
+def how_markdown(p: Path) -> str:
+    """«Как получен результат» — из журнала, реестров и costs/, а не со слов модели: числа совпадают с данными."""
+    st = read_json(p / "state.json", {})
+    sources = read_jsonl(p / "sources.jsonl")
+    claims = read_jsonl(p / "claims.jsonl")
+    act = [c for c in claims if c.get("status") == "active"]
+    qs = read_json(p / "plan.json", {"questions": []}).get("questions", [])
+    jr = [m.groups() for line in (p / "journal.md").read_text(encoding="utf-8").splitlines()
+          if (m := JOURNAL_RE.match(line))] if (p / "journal.md").exists() else []
+    kinds = {}
+    for _, k, _ in jr:
+        kinds[k] = kinds.get(k, 0) + 1
+    cost = cost_totals(p)
+    sessions = [read_json(f, {}) for f in sorted((p / "costs").glob("*.json"))]
+    by_model_msgs: dict[str, int] = {}
+    for s in sessions:
+        for m, v in s.get("by_model", {}).items():
+            by_model_msgs[m] = by_model_msgs.get(m, 0) + v.get("messages", 0)
+    times = [t for t in (parse_ts(x[0]) for x in jr) if t]
+    span = (max(times) - min(times)) if times else None
+    hist = st.get("history", [])
+
+    L = []
+    stages = " → ".join(f"{h['stage']} ({h['at'][5:16].replace('T', ' ')})" for h in hist)
+    L.append(f"- **Этапы:** {stages or '—'}.")
+    if span is not None:
+        h, mnt = divmod(int(span.total_seconds() // 60), 60)
+        L.append(f"- **Время:** {h} ч {mnt} мин от создания проекта до последней записи журнала; "
+                 f"сессий агента: {len(sessions)}.")
+    st_types = {}
+    for s in sources:
+        st_types[s["type"]] = st_types.get(s["type"], 0) + 1
+    web = [s for s in sources if s["type"] == "web"]
+    rel = {r: sum(1 for s in sources if s.get("reliability") == r) for r in ("high", "medium", "low")}
+    L.append(f"- **Источники:** {len(sources)}"
+             + (" (" + ", ".join(f"{k} {v}" for k, v in sorted(st_types.items())) + ")" if st_types else "")
+             + (f"; веб со снимком: {sum(1 for s in web if s.get('snapshot'))} из {len(web)}" if web else "")
+             + f"; надёжность: высокая {rel['high']}, средняя {rel['medium']}, низкая {rel['low']}.")
+    n = len(act)
+    by = {k: sum(1 for c in act if c["kind"] == k) for k in CLAIM_KINDS}
+    L.append(f"- **Утверждения:** {n} действующих — факты {by['fact']} ({pct(by['fact'], n)}), гипотезы "
+             f"{by['hypothesis']} ({pct(by['hypothesis'], n)}), прогнозы {by['forecast']} ({pct(by['forecast'], n)}), "
+             f"допущения {by['assumption']} ({pct(by['assumption'], n)}); отозвано "
+             f"{sum(1 for c in claims if c.get('status') == 'retracted')}, заменено "
+             f"{sum(1 for c in claims if c.get('status') == 'superseded')}.")
+    qn = {s: sum(1 for q in qs if q.get("status") == s) for s in ("done", "failed", "doing", "todo")}
+    L.append(f"- **Вопросы исследования:** {len(qs)} — ответ получен {qn['done']}, не удалось {qn['failed']}, "
+             f"в работе {qn['doing']}, не начаты {qn['todo']}.")
+    L.append(f"- **Участие человека:** решений и подтверждений {kinds.get('human', 0)}, остановок на воротах "
+             f"{kinds.get('gate', 0)}.")
+    L.append(f"- **Маршрутизация и сбои:** эскалаций/смен модели {kinds.get('routing', 0)}, ошибок инструментов "
+             f"{kinds.get('error', 0)}, найденных внедрённых инструкций {kinds.get('security', 0)}.")
+    models = ", ".join(f"{m} ${v:.2f} ({by_model_msgs.get(m, 0)} отв.)" for m, v in sorted(cost["by_model"].items()))
+    budget = st.get("budget_usd")
+    L.append(f"- **Стоимость:** ${cost['usd']:.2f}" + (f" из бюджета ${budget}" if budget else "")
+             + (f"; по моделям: {models}" if models else "") + f"; веб-поисков {cost['web_searches']}. "
+             "На подписке — оценка в ценах API (`config/pricing.json`).")
+    return "\n".join(L)
+
+
+def fill_how(md: str, p: Path) -> str:
+    if HOW_START not in md:
+        return md
+    block = f"{HOW_START}\n{how_markdown(p)}\n{HOW_END}"
+    if HOW_END in md:
+        return re.sub(re.escape(HOW_START) + r".*?" + re.escape(HOW_END), lambda _: block, md, count=1, flags=re.S)
+    return md.replace(HOW_START, block, 1)
+
+
+def cmd_how(a):
+    print(how_markdown(pdir(a.project)))
+
+
 def cmd_render(a):
     p = pdir(a.project)
     src = p / (a.file or "report.md")
     if not src.exists():
         die(f"Нет {src.relative_to(ROOT)}")
+    md = src.read_text(encoding="utf-8")
+    filled = fill_how(md, p)
+    if filled != md:  # report.md и report.html показывают одни и те же цифры
+        src.write_text(filled, encoding="utf-8")
     sources = {s["id"]: s for s in read_jsonl(p / "sources.jsonl")}
     claims = {c["id"]: c for c in read_jsonl(p / "claims.jsonl")}
-    body = md_to_html(src.read_text(encoding="utf-8"), sources, claims)
+    body = md_to_html(filled, sources, claims)
     used = sorted({r for r in doc_refs(p) if r.startswith("S")} & set(sources))
     src_html = "".join(
         f'<li id="{s}"><b>{s}</b> {html.escape(sources[s]["title"])}'
@@ -935,6 +1177,8 @@ def hook_protect(d):
     def block(msg):
         print(f"[guard] {msg}", file=sys.stderr)
         sys.exit(2)
+    if r := budget_block_reason(d):
+        block(r)
     if tool in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
         norm = path.replace("\\", "/")
         # snapshots/ — «записать один раз»: researcher сохраняет НОВЫЙ снимок страницы, менять готовый нельзя
@@ -952,21 +1196,71 @@ def hook_protect(d):
             block(r + " Обход через shell запрещён: используй scripts/strat.py или спроси человека.")
 
 
-def hook_stop(d):
-    slug = active_slug(required=False)
+def main_transcript(d) -> Path | None:
+    """Путь к транскрипту основной сессии (не субагента — иначе файл сессии перезапишется частью затрат)."""
     tp = d.get("transcript_path")
-    if not slug or not tp or not Path(tp).exists():
+    if not tp or not Path(tp).exists() or Path(tp).parent.name == "subagents":
+        return None
+    return Path(tp)
+
+
+def budget_state(p: Path) -> tuple[float, float | None]:
+    return cost_totals(p)["usd"], read_json(p / "state.json", {}).get("budget_usd")
+
+
+def hook_stop(d):
+    tp = main_transcript(d)
+    if tp:
+        record_session_costs(tp, d.get("session_id") or tp.stem)
+    slug = active_slug(required=False)
+    if not slug:
         return
     p = pdir(slug)
-    record_session_cost(p, Path(tp), d.get("session_id") or Path(tp).stem)
     st = read_json(p / "state.json")
     st["last_turn_at"] = now()
     write_json(p / "state.json", st)
-    if st.get("budget_usd"):
-        tot = cost_totals(p)["usd"]
-        if tot > st["budget_usd"]:
-            print(json.dumps({"systemMessage": f"⚠ Проект превысил бюджет: ${tot:.2f} > ${st['budget_usd']}"},
-                             ensure_ascii=False))
+    tot, budget = budget_state(p)
+    if budget and tot > budget:
+        print(json.dumps({"systemMessage": f"⚠ Проект превысил бюджет: ${tot:.2f} > ${budget}. Поиск, чтение сайтов "
+                                           "и субагенты заблокированы, пока вы не поднимете бюджет."}, ensure_ascii=False))
+    elif budget and tot > 0.8 * budget:
+        print(json.dumps({"systemMessage": f"Потрачено ${tot:.2f} из ${budget} (>80% бюджета)."}, ensure_ascii=False))
+
+
+def budget_block_reason(d) -> str | None:
+    """Бюджет — не предупреждение задним числом: при превышении дорогие действия блокируются до решения человека."""
+    if d.get("tool_name") not in BUDGET_TOOLS:
+        return None
+    slug = active_slug(required=False)
+    if not slug:
+        return None
+    p = pdir(slug)
+    tp = main_transcript(d)
+    if tp:  # пересчитать на лету: Stop-хук обновляет стоимость только в конце хода
+        record_session_costs(tp, d.get("session_id") or tp.stem)
+    tot, budget = budget_state(p)
+    if not budget or tot <= budget:
+        return None
+    journal(p, f"бюджет исчерпан: ${tot:.2f} из ${budget}; заблокировано {d.get('tool_name')}", "cost")
+    return (f"Бюджет проекта исчерпан: ${tot:.2f} из ${budget}. Остановись: скажи человеку, сколько потрачено, что "
+            "уже сделано и что осталось, и спроси, поднять ли бюджет и на сколько. После его явного «да»: "
+            "python scripts/strat.py budget <новый лимит> --approved --note \"<что решил человек>\"")
+
+
+def cmd_budget(a):
+    p = pdir(a.project)
+    st = read_json(p / "state.json")
+    tot = cost_totals(p)["usd"]
+    if a.usd is None:
+        print(f"Потрачено ${tot:.2f} из ${st.get('budget_usd') or '—'}")
+        return
+    if not a.approved:
+        die("Бюджет меняет человек: спроси его и запусти с --approved --note \"<что решил>\"", 3)
+    old = st.get("budget_usd")
+    st["budget_usd"] = a.usd
+    write_json(p / "state.json", st)
+    journal(p, f"бюджет ${old} → ${a.usd} (потрачено ${tot:.2f})" + (f": {a.note}" if a.note else ""), "human")
+    print(f"✓ Бюджет: ${a.usd} (потрачено ${tot:.2f})")
 
 
 def cmd_hook(a):
@@ -1007,6 +1301,12 @@ def main(argv=None):
     s.add_argument("--text"); s.add_argument("--why"); s.add_argument("--method"); s.add_argument("--claims")
     s.add_argument("--force", action="store_true"); s.set_defaults(f=cmd_q)
 
+    s = sp.add_parser("budget", help="показать/изменить бюджет (меняет только человек: --approved)")
+    s.add_argument("usd", nargs="?", type=float); s.add_argument("--approved", action="store_true"); s.add_argument("--note")
+    s.set_defaults(f=cmd_budget)
+    s = sp.add_parser("allow", help="разрешённые источники: add <домен…> | list ('*' — любые открытые)")
+    s.add_argument("action", choices=["add", "list"]); s.add_argument("domains", nargs="*"); s.set_defaults(f=cmd_allow)
+
     s = sp.add_parser("input", help="добавить исходный материал в inputs/ (без перезаписи)")
     s.add_argument("action", choices=["add"]); s.add_argument("file"); s.add_argument("--name")
     s.set_defaults(f=cmd_input)
@@ -1037,6 +1337,7 @@ def main(argv=None):
     s = sp.add_parser("cost", help="стоимость проекта")
     s.add_argument("--transcript"); s.add_argument("--session"); s.set_defaults(f=cmd_cost)
     s = sp.add_parser("render", help="report.md → report.html"); s.add_argument("--file"); s.set_defaults(f=cmd_render)
+    sp.add_parser("how", help="раздел «Как получен результат» из журнала, реестров и стоимости").set_defaults(f=cmd_how)
     s = sp.add_parser("hook", help="вход для хуков Claude Code / Cursor")
     s.add_argument("name", choices=["session-start", "injection-scan", "protect", "stop"]); s.set_defaults(f=cmd_hook)
 
