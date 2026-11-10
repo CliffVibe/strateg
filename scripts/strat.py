@@ -1261,6 +1261,110 @@ def shell_write_reason(cmd: str) -> str | None:
     return None
 
 
+# Команды, выводящие содержимое файла: у SECRET_READERS все позиционные аргументы — файлы,
+# у PATTERN_READERS первый позиционный — образец поиска (если образец не задан через -e/-Pattern).
+SECRET_READERS = {"cat", "tac", "type", "more", "less", "head", "tail", "nl", "bat", "strings", "xxd", "od",
+                  "gc", "get-content", "source", "base64"}
+PATTERN_READERS = {"grep", "egrep", "fgrep", "rg", "ag", "select-string", "sls", "findstr", "awk", "sed"}
+
+
+def strip_heredocs(cmd: str) -> str:
+    """Убрать тела heredoc (<<EOF … EOF) и here-string PowerShell (@' … '@): это данные, а не команды."""
+    cmd = re.sub(r"@(['\"])\r?\n.*?\r?\n\1@", "", cmd, flags=re.S)
+    out, lines, i = [], cmd.split("\n"), 0
+    while i < len(lines):
+        out.append(lines[i])
+        tags = re.findall(r"<<-?\s*(['\"]?)([A-Za-z_]\w*)\1", lines[i])
+        i += 1
+        for _, tag in tags:
+            while i < len(lines) and lines[i].strip() != tag:
+                i += 1
+            i += 1  # строка-ограничитель
+    return "\n".join(out)
+
+
+def shell_segments(cmd: str) -> list[str]:
+    """Простые команды строки shell: деление по ; | & ( ) и переводу строки вне кавычек, плюс $(…) и `…`
+    (подстановка выполняется и внутри двойных кавычек)."""
+    segs, cur, q, i, inner = [], [], None, 0, 0  # inner — открытые $( внутри двойных кавычек
+    while i < len(cmd):
+        ch = cmd[i]
+        if q != "'" and (ch == "`" or cmd.startswith("$(", i)):
+            segs.append("".join(cur))
+            cur = []
+            inner += q == '"' and ch != "`"
+            i += 1 if ch == "`" else 2
+            continue
+        if q:
+            if ch == q:
+                q = None
+            elif q == '"' and ch == ")" and inner:  # конец $(…) внутри двойных кавычек
+                inner -= 1
+                segs.append("".join(cur))
+                cur = []
+                i += 1
+                continue
+        elif ch in "'\"":
+            q = ch
+        elif ch in ";|&\n()":
+            segs.append("".join(cur))
+            cur = []
+            i += 1
+            continue
+        cur.append(ch)
+        i += 1
+    segs.append("".join(cur))
+    return [x for x in segs if x.strip()]
+
+
+def is_secret_path(t: str) -> bool:
+    base = re.split(r"[/\\]", t.strip().strip("'\""))[-1]
+    return bool(re.fullmatch(r"\.env([.*].*)?", base, flags=re.I)) and not base.lower().endswith(".example")
+
+
+def secret_read_reason(cmd: str) -> bool:
+    """Читает ли команда файл секретов. Смотрим на аргументы-файлы команд чтения, а не на всю строку:
+    раньше поиск строки «.env» в коде или «.env» в тексте heredoc рядом с cat блокировались (10.11, T02)."""
+    for seg in shell_segments(strip_heredocs(cmd)):
+        try:
+            toks = [t.strip("'\"") for t in shlex.split(seg, posix=False)]
+        except ValueError:
+            toks = seg.split()
+        while toks and (toks[0] in ("sudo", "command", "exec", ".") or re.match(r"^\w+=", toks[0])):
+            if toks[0] == "." and len(toks) > 1 and is_secret_path(toks[1]):
+                return True  # «. .env» — то же, что source
+            toks = toks[1:]
+        if not toks:
+            continue
+        verb = re.split(r"[/\\]", toks[0])[-1].lower().removesuffix(".exe")
+        args = toks[1:]
+        if verb in ("python", "python3", "py", "node") and re.search(r"open\(|read_text|readFileSync", seg):
+            if any(is_secret_path(x) for x in re.findall(r"[\w.:/\\*-]+", seg)):
+                return True  # python -c "open('.env').read()"
+        if verb not in SECRET_READERS and verb not in PATTERN_READERS:
+            continue
+        files, skip_next, pattern_given = [], False, False
+        for j, t in enumerate(args):
+            if skip_next:
+                skip_next = False
+                continue
+            low = t.lower()
+            if low in ("-e", "--regexp", "-pattern"):
+                pattern_given, skip_next = True, True
+                continue
+            if low in ("-f", "--file", "-path", "-literalpath"):
+                files += args[j + 1:j + 2]
+                skip_next = True
+                continue
+            if not t.startswith("-"):
+                files.append(t)
+        if verb in PATTERN_READERS and not pattern_given:
+            files = files[1:]  # первый позиционный — образец поиска, а не файл
+        if any(is_secret_path(f) for f in files):
+            return True
+    return False
+
+
 def hook_protect(d):
     ti = d.get("tool_input") or {}
     path = str(ti.get("file_path") or ti.get("notebook_path") or "")
@@ -1280,8 +1384,7 @@ def hook_protect(d):
         if r := protected_reason(path):
             block(r)
     if tool in ("Bash", "PowerShell"):
-        if re.search(r"\b(cat|type|more|less|head|tail|grep|rg|gc|get-content|select-string|sls)\b[^|;&]*\.env(?!\.example)\b",
-                     cmd, flags=re.I):
+        if secret_read_reason(cmd):
             block("Чтение .env запрещено.")
         if re.search(r"rm\s+-rf?\s", cmd) or re.search(r"remove-item\b[^|;&]*-recurse", cmd, flags=re.I):
             block("Удаление файлов — только человек.")

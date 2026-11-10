@@ -244,6 +244,28 @@ class StratTest(unittest.TestCase):
         for tool, cmd in allowed:
             self.assertEqual(self._protect(tool, cmd), 0, f"не должно блокироваться: {tool}: {cmd}")
 
+    def test_secret_rule_checks_read_arguments_not_whole_line(self):
+        # 10.11: правило «не читать .env» срабатывало на всю строку — поиск строки «.env» в коде,
+        # «.env» в тексте heredoc или в сообщении коммита блокировались (в T03 — снова, на этой самой правке)
+        blocked = [("Bash", "cat .env"), ("Bash", "cat ./.env.local"), ("Bash", "head -5 config/.env"),
+                   ("Bash", "cd x && cat .env"), ("Bash", "echo $(cat .env)"), ("Bash", 'echo "`tail .env`"'),
+                   ("Bash", "grep API_KEY .env"), ("Bash", "rg -n -A 2 token .env.production"),
+                   ("Bash", "grep -e KEY .env"), ("Bash", "sed -n 1p .env"), ("Bash", "cat .env* | wc -l"),
+                   ("Bash", "source .env"), ("Bash", ". .env"), ("Bash", "python -c \"print(open('.env').read())\""),
+                   ("PowerShell", "Get-Content .env"), ("PowerShell", "Get-Content -Path C:\\repo\\.env"),
+                   ("PowerShell", "Select-String -Pattern KEY -Path .env"), ("PowerShell", "type .env")]
+        for tool, cmd in blocked:
+            self.assertEqual(self._protect(tool, cmd), 2, f"должно блокироваться: {tool}: {cmd}")
+        allowed = [("Bash", 'grep -n "\\.env" scripts/strat.py'), ("Bash", 'rg ".env" -g "*.py"'),
+                   ("Bash", "grep -rn .env docs/"), ("Bash", "cat .env.example"),
+                   ("Bash", "cat <<'EOF' > notes.md\nне читай .env и не делай cat .env\nEOF"),
+                   ("Bash", "python - <<'EOF'\nimport os  # cat .env\nprint(open('README.md').read())\nEOF\necho ok"),
+                   ("Bash", 'git commit -m "fix: правило cat .env; grep .env в коде"'),
+                   ("Bash", "cat README.md && echo .env"), ("Bash", "ls -la .env.example"),
+                   ("PowerShell", "Select-String -Pattern '.env' -Path scripts\\strat.py")]
+        for tool, cmd in allowed:
+            self.assertEqual(self._protect(tool, cmd), 0, f"не должно блокироваться: {tool}: {cmd}")
+
     def test_snapshots_are_write_once(self):
         snap = self.p / "snapshots" / "site-2026-11.md"
         hook = json.dumps({"tool_name": "Write", "tool_input": {"file_path": str(snap)}})
