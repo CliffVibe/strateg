@@ -324,11 +324,43 @@ class StratTest(unittest.TestCase):
         md = rep.read_text(encoding="utf-8")
         self.assertEqual(md.count("<!-- /strat:how -->"), 1)
         self.assertIn("3 действующих — факты 1 (33%)", md)
-        self.assertIn("решений и подтверждений 1", md)
+        self.assertIn("решений и подтверждений в журнале 1", md)
         self.assertIn("Люди помогли.", md)
         h = (self.p / "report.html").read_text(encoding="utf-8")
         self.assertNotIn("<!--", h)
         self.assertIn("Утверждения:", h)
+
+    def test_how_counts_subagent_web_searches_and_gates(self):
+        # T02: «веб-поисков 0» и «остановок на воротах 0» при 24 поисках субагентов и четырёх воротах
+        t = self.tmp / "s5.jsonl"
+        u = {"input_tokens": 10, "output_tokens": 10, "server_tool_use": {"web_search_requests": 0}}
+
+        def tool_line(mid, tid, name, ts="2099-01-01T00:00:00Z"):
+            return json.dumps({"type": "assistant", "timestamp": ts, "message": {
+                "id": mid, "model": "claude-sonnet-5-5", "usage": u,
+                "content": [{"type": "tool_use", "id": tid, "name": name, "input": {}}]}})
+        # одно сообщение основного агента: текст и вызов Agent разными строками
+        t.write_text("\n".join([json.dumps({"type": "assistant", "timestamp": "2099-01-01T00:00:00Z", "message": {
+            "id": "m1", "model": "claude-sonnet-5-5", "usage": u, "content": [{"type": "text", "text": "ищу"}]}}),
+            tool_line("m1", "t1", "Agent")]) + "\n", encoding="utf-8")
+        sub = self.tmp / "s5" / "subagents"
+        sub.mkdir(parents=True)
+        (sub / "agent-a.jsonl").write_text("\n".join([
+            tool_line("a1", "t2", "WebSearch"), tool_line("a1", "t3", "WebSearch"),  # два поиска в одном сообщении
+            tool_line("a2", "t4", "WebFetch"), tool_line("a2", "t4", "WebFetch")]) + "\n", encoding="utf-8")  # повтор строки
+        self.ok("hook", "stop", stdin=json.dumps({"transcript_path": str(t), "session_id": "s5"}))
+        d = json.loads((self.p / "costs" / "s5.json").read_text(encoding="utf-8"))
+        self.assertEqual((d["web_searches"], d["web_fetches"]), (2, 1))
+        # ворота: агент спросил в чате и сразу дал --approved — записей gate нет, но ворота пройдены
+        self.ok("stage", "framing", "--approved", "--note", "бриф ок")
+        self.ok("stage", "plan")
+        self.fails("stage", "collect", code=3)  # остановка: ждём человека
+        self.ok("stage", "collect", "--approved", "--note", "план ок")
+        how = self.ok("how")
+        self.assertIn("ворота пройдены с одобрения человека 2 (intake → framing, plan → collect)", how)
+        self.assertIn("запросов «ждём человека» от `strat stage` 1", how)
+        self.assertIn("веб-поисков 2, чтений страниц 1", how)
+        self.assertIn("веб-поисков: 2 · чтений страниц: 1", self.ok("cost"))
 
     # ── отчёт ──
     def test_render_links_sources_and_marks_kinds(self):

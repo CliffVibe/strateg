@@ -248,7 +248,7 @@ def cmd_stage(a):
         sys.exit(3)
     st["stage"] = a.stage
     st["gate"] = {"pending": False, "question": None}
-    st["history"].append({"stage": a.stage, "at": now(), "note": a.note or ""})
+    st["history"].append({"stage": a.stage, "at": now(), "note": a.note or "", "approved": bool(a.approved)})
     st["next_action"] = a.next or NEXT_BY_STAGE.get(a.stage, st.get("next_action"))
     write_json(p / "state.json", st)
     journal(p, f"этап → {a.stage}" + (f" ({a.note})" if a.note else ""), "human" if a.approved else "stage")
@@ -731,8 +731,14 @@ def transcript_usage(path: Path) -> dict:
                 continue
             m = d.get("message")
             if d.get("type") == "assistant" and isinstance(m, dict) and m.get("usage") and m.get("id"):
-                ts = seen.get(m["id"], {}).get("ts") or d.get("timestamp")
-                seen[m["id"]] = {"model": m.get("model", "unknown"), "usage": m["usage"], "ts": ts}
+                prev = seen.get(m["id"], {})
+                # блоки одного сообщения (текст, вызовы инструментов) идут разными строками — вызовы копим
+                tools = dict(prev.get("tools", {}))
+                for b in m.get("content") or []:
+                    if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
+                        tools[b["id"]] = b.get("name", "")
+                seen[m["id"]] = {"model": m.get("model", "unknown"), "usage": m["usage"],
+                                 "ts": prev.get("ts") or d.get("timestamp"), "tools": tools}
     return seen
 
 
@@ -785,14 +791,19 @@ def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
 
 def usage_cost(msgs: dict, pricing: dict) -> dict:
     tot = {"usd": 0.0, "input": 0, "output": 0, "cache_write": 0, "cache_read": 0,
-           "web_searches": 0, "messages": len(msgs), "by_model": {}, "unpriced_models": []}
+           "web_searches": 0, "web_fetches": 0, "messages": len(msgs), "by_model": {}, "unpriced_models": []}
     for v in msgs.values():
         u, model = v["usage"], v["model"]
         inp, out = u.get("input_tokens", 0), u.get("output_tokens", 0)
         cw, cr = u.get("cache_creation_input_tokens", 0), u.get("cache_read_input_tokens", 0)
         cw1h = (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens", 0) or 0
         cw5m = max(cw - cw1h, 0)
-        ws = (u.get("server_tool_use") or {}).get("web_search_requests", 0) or 0
+        # Поиск двумя путями: серверный инструмент модели (usage.server_tool_use) и инструмент Claude Code
+        # WebSearch (вызов tool_use; его запрос к API в usage транскрипта не виден). T02: считали только
+        # первый → «веб-поисков 0» при 24 поисках субагентов. Оба тарифицируются как поиск.
+        names = list((v.get("tools") or {}).values())
+        ws = ((u.get("server_tool_use") or {}).get("web_search_requests", 0) or 0) + names.count("WebSearch")
+        tot["web_fetches"] += ((u.get("server_tool_use") or {}).get("web_fetch_requests", 0) or 0) + names.count("WebFetch")
         pr = price_for(model, pricing)
         usd = 0.0
         if pr:
@@ -811,11 +822,12 @@ def usage_cost(msgs: dict, pricing: dict) -> dict:
 
 
 def cost_totals(p: Path) -> dict:
-    agg = {"usd": 0.0, "sessions": 0, "by_model": {}, "web_searches": 0}
+    agg = {"usd": 0.0, "sessions": 0, "by_model": {}, "web_searches": 0, "web_fetches": 0}
     for f in sorted((p / "costs").glob("*.json")):
         d = read_json(f, {})
         agg["usd"] += d.get("usd", 0)
         agg["web_searches"] += d.get("web_searches", 0)
+        agg["web_fetches"] += d.get("web_fetches", 0)
         agg["sessions"] += 1
         for m, v in d.get("by_model", {}).items():
             agg["by_model"].setdefault(m, 0.0)
@@ -843,7 +855,8 @@ def cmd_cost(a):
         return
     p = pdir(a.project)
     agg = cost_totals(p)
-    print(f"Всего: ${agg['usd']:.4f} за {agg['sessions']} сесс. · веб-поисков: {agg['web_searches']}")
+    print(f"Всего: ${agg['usd']:.4f} за {agg['sessions']} сесс. · веб-поисков: {agg['web_searches']} · "
+          f"чтений страниц: {agg['web_fetches']}")
     for m, v in sorted(agg["by_model"].items(), key=lambda x: -x[1]):
         print(f"  {m:28} ${v:.4f}")
     pr = load_pricing()
@@ -945,6 +958,18 @@ def pct(n: int, total: int) -> str:
     return f"{round(100 * n / total)}%" if total else "—"
 
 
+def gates_passed(hist: list[dict]) -> list[str]:
+    """Ворота, пройденные с одобрения человека: шаг вперёд из этапа-ворот возможен только с --approved,
+    поэтому считаем по истории этапов. T02: считали записи `gate` — их нет, если агент спросил человека
+    в чате и сразу запустил stage --approved, и в отчёте было «остановок на воротах 0» при четырёх воротах."""
+    out = []
+    for prev, cur in zip(hist, hist[1:]):
+        a, b = prev.get("stage"), cur.get("stage")
+        if a in GATES and b in STAGES and a in STAGES and STAGES.index(b) > STAGES.index(a):
+            out.append(f"{a} → {b}")
+    return out
+
+
 def how_markdown(p: Path) -> str:
     """«Как получен результат» — из журнала, реестров и costs/, а не со слов модели: числа совпадают с данными."""
     st = read_json(p / "state.json", {})
@@ -993,14 +1018,18 @@ def how_markdown(p: Path) -> str:
     qn = {s: sum(1 for q in qs if q.get("status") == s) for s in ("done", "failed", "doing", "todo")}
     L.append(f"- **Вопросы исследования:** {len(qs)} — ответ получен {qn['done']}, не удалось {qn['failed']}, "
              f"в работе {qn['doing']}, не начаты {qn['todo']}.")
-    L.append(f"- **Участие человека:** решений и подтверждений {kinds.get('human', 0)}, остановок на воротах "
-             f"{kinds.get('gate', 0)}.")
+    passed = gates_passed(hist)
+    L.append(f"- **Участие человека:** ворота пройдены с одобрения человека {len(passed)}"
+             + (f" ({', '.join(passed)})" if passed else "")
+             + f"; решений и подтверждений в журнале {kinds.get('human', 0)}; запросов «ждём человека» "
+             f"от `strat stage` {kinds.get('gate', 0)}.")
     L.append(f"- **Маршрутизация и сбои:** эскалаций/смен модели {kinds.get('routing', 0)}, ошибок инструментов "
              f"{kinds.get('error', 0)}, найденных внедрённых инструкций {kinds.get('security', 0)}.")
     models = ", ".join(f"{m} ${v:.2f} ({by_model_msgs.get(m, 0)} отв.)" for m, v in sorted(cost["by_model"].items()))
     budget = st.get("budget_usd")
     L.append(f"- **Стоимость:** ${cost['usd']:.2f}" + (f" из бюджета ${budget}" if budget else "")
-             + (f"; по моделям: {models}" if models else "") + f"; веб-поисков {cost['web_searches']}. "
+             + (f"; по моделям: {models}" if models else "")
+             + f"; веб-поисков {cost['web_searches']}, чтений страниц {cost['web_fetches']} (с субагентами). "
              "На подписке — оценка в ценах API (`config/pricing.json`).")
     return "\n".join(L)
 
