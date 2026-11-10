@@ -6,6 +6,7 @@ __pycache__/
 .claude/settings.local.json
 projects/.active
 projects/.activity.jsonl
+projects/.strat.lock
 projects/*/costs/*.json
 !projects/demo-*/costs/*.json
 *.tmp

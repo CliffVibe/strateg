@@ -5,6 +5,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -71,6 +72,37 @@ class StratTest(unittest.TestCase):
         self.fails("claim", "add", "--kind", "fact", "--text", "Людям нужна функция", "--sources", "S001")
         self.assertIn("C001", self.ok("claim", "add", "--kind", "hypothesis", "--text", "Людям нужна функция",
                                        "--sources", "S001"))
+
+    def test_parallel_claim_add_gives_unique_ids(self):
+        # T02: next_id без блокировки — параллельные researcher могли получить один ID или затереть запись
+        n = 10
+        procs = [subprocess.Popen([sys.executable, str(STRAT), "claim", "add", "--kind", "hypothesis",
+                                   "--text", f"Гипотеза {i}"], env=self.env, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE) for i in range(n)]
+        for pr in procs:
+            _, err = pr.communicate(timeout=60)
+            self.assertEqual(pr.returncode, 0, err.decode("utf-8", "replace"))
+        rows = [json.loads(x) for x in (self.p / "claims.jsonl").read_text(encoding="utf-8").splitlines() if x.strip()]
+        self.assertEqual(len(rows), n)
+        self.assertEqual(sorted(r["id"] for r in rows), [f"C{i:03d}" for i in range(1, n + 1)])
+        self.assertEqual(sorted(r["text"] for r in rows), sorted(f"Гипотеза {i}" for i in range(n)))
+        self.assertFalse((self.tmp / "projects" / ".strat.lock").exists())
+
+    def test_registry_lock_waits_and_breaks_stale_lock(self):
+        lock = self.tmp / "projects" / ".strat.lock"
+        lock.write_text("99999", encoding="utf-8")  # занято другим процессом
+        pr = subprocess.Popen([sys.executable, str(STRAT), "claim", "add", "--kind", "hypothesis", "--text", "x"],
+                              env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        time.sleep(1.5)
+        self.assertIsNone(pr.poll(), "запись должна ждать снятия блокировки")
+        lock.unlink()
+        pr.communicate(timeout=30)
+        self.assertEqual(pr.returncode, 0)
+        self.ok("status")  # чтение блокировку не берёт
+        lock.write_text("99999", encoding="utf-8")
+        old = time.time() - 600
+        os.utime(lock, (old, old))  # след упавшего процесса
+        self.assertIn("C002", self.ok("claim", "add", "--kind", "hypothesis", "--text", "y"))
 
     def test_forecast_needs_basis(self):
         self.fails("claim", "add", "--kind", "forecast", "--text", "Выручка вырастет")

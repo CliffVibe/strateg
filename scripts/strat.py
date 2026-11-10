@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import datetime as dt
 import hashlib
 import html
@@ -18,6 +19,7 @@ import re
 import shlex
 import shutil
 import sys
+import time
 import urllib.parse
 from pathlib import Path
 
@@ -101,7 +103,45 @@ def write_jsonl(p: Path, rows: list[dict]):
     tmp.replace(p)
 
 
+LOCK_WAIT_S, LOCK_STALE_S = 20.0, 60.0
+
+
+@contextlib.contextmanager
+def registry_lock(name: str = ".strat.lock"):
+    """Файловая блокировка «прочитать реестр → выдать next_id → записать» (только stdlib, любая ОС).
+    T02: параллельные researcher могли получить один и тот же ID. Файл создаётся атомарно (O_EXCL);
+    файл старше LOCK_STALE_S — след упавшего процесса, его можно снять."""
+    PROJECTS.mkdir(exist_ok=True)
+    lock = PROJECTS / name
+    deadline = time.monotonic() + LOCK_WAIT_S
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, f"{os.getpid()} {now()}".encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > LOCK_STALE_S:
+                    lock.unlink()
+                    continue
+            except FileNotFoundError:
+                continue
+            if time.monotonic() > deadline:
+                die(f"Реестры заняты другим процессом strat больше {LOCK_WAIT_S:.0f} с. Повтори команду; если "
+                    f"процессов strat нет — удали {lock.relative_to(ROOT)}")
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        try:
+            lock.unlink()
+        except FileNotFoundError:
+            pass
+
+
 def next_id(rows: list[dict], prefix: str, width: int = 3) -> str:
+    """Следующий ID. Вызывать только под registry_lock (main() берёт её для команд, меняющих данные)."""
     nums = [int(r["id"][len(prefix):]) for r in rows if str(r.get("id", "")).startswith(prefix)]
     return f"{prefix}{(max(nums) + 1) if nums else 1:0{width}d}"
 
@@ -1372,7 +1412,21 @@ def main(argv=None):
 
     a = ap.parse_args(argv)
     PROJECTS.mkdir(exist_ok=True)
-    a.f(a)
+    if changes_data(a):  # чтение → next_id → запись: под блокировкой, иначе параллельные субагенты дают дубли ID
+        with registry_lock():
+            a.f(a)
+    else:
+        a.f(a)
+
+
+def changes_data(a) -> bool:
+    if a.cmd in ("list", "status", "check", "how", "impact"):
+        return False
+    if a.cmd == "hook":  # protect/injection-scan не ждут блокировку (таймаут хука); stop пишет state.json
+        return a.name == "stop"
+    if a.cmd == "cost":
+        return bool(a.transcript)
+    return getattr(a, "action", None) not in ("list", "review")
 
 
 if __name__ == "__main__":
