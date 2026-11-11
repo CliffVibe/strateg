@@ -1,0 +1,174 @@
+{
+ "model": "claude-haiku-5-5",
+ "usd": 0.004223,
+ "input": 4,
+ "output": 3415,
+ "cache_write": 18692,
+ "cache_read": 17893,
+ "seconds": 14.9,
+ "tool_calls": 2,
+ "predictions": {
+  "E01": {
+   "kind": "hypothesis",
+   "confidence": 0.8
+  },
+  "E02": {
+   "kind": "hypothesis",
+   "confidence": 0.85
+  },
+  "E03": {
+   "kind": "hypothesis",
+   "confidence": 0.8
+  },
+  "E04": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E05": {
+   "kind": "hypothesis",
+   "confidence": 0.6
+  },
+  "E06": {
+   "kind": "forecast",
+   "confidence": 0.85
+  },
+  "E07": {
+   "kind": "fact",
+   "confidence": 0.9
+  },
+  "E08": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E09": {
+   "kind": "hypothesis",
+   "confidence": 0.85
+  },
+  "E10": {
+   "kind": "fact",
+   "confidence": 0.85
+  },
+  "E11": {
+   "kind": "fact",
+   "confidence": 0.85
+  },
+  "E12": {
+   "kind": "assumption",
+   "confidence": 0.8
+  },
+  "E13": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E14": {
+   "kind": "assumption",
+   "confidence": 0.85
+  },
+  "E15": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E16": {
+   "kind": "fact",
+   "confidence": 0.8
+  },
+  "E17": {
+   "kind": "fact",
+   "confidence": 0.7
+  },
+  "E18": {
+   "kind": "hypothesis",
+   "confidence": 0.7
+  },
+  "E19": {
+   "kind": "hypothesis",
+   "confidence": 0.9
+  },
+  "E20": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E21": {
+   "kind": "fact",
+   "confidence": 0.75
+  },
+  "E22": {
+   "kind": "assumption",
+   "confidence": 0.85
+  },
+  "E23": {
+   "kind": "hypothesis",
+   "confidence": 0.9
+  },
+  "E24": {
+   "kind": "hypothesis",
+   "confidence": 0.7
+  },
+  "E25": {
+   "kind": "fact",
+   "confidence": 0.9
+  },
+  "E26": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E27": {
+   "kind": "hypothesis",
+   "confidence": 0.9
+  },
+  "E28": {
+   "kind": "hypothesis",
+   "confidence": 0.8
+  },
+  "E29": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E30": {
+   "kind": "fact",
+   "confidence": 0.85
+  },
+  "E31": {
+   "kind": "forecast",
+   "confidence": 0.9
+  },
+  "E32": {
+   "kind": "fact",
+   "confidence": 0.7
+  },
+  "E33": {
+   "kind": "fact",
+   "confidence": 0.75
+  },
+  "E34": {
+   "kind": "fact",
+   "confidence": 0.7
+  },
+  "E35": {
+   "kind": "assumption",
+   "confidence": 0.75
+  },
+  "E36": {
+   "kind": "hypothesis",
+   "confidence": 0.85
+  },
+  "E37": {
+   "kind": "hypothesis",
+   "confidence": 0.9
+  },
+  "E38": {
+   "kind": "hypothesis",
+   "confidence": 0.85
+  },
+  "E39": {
+   "kind": "fact",
+   "confidence": 0.9
+  },
+  "E40": {
+   "kind": "fact",
+   "confidence": 0.8
+  }
+ },
+ "note": "verifier (haiku), без подсказок, прогон 1",
+ "variant": "hard"
+}

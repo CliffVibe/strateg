@@ -29,6 +29,17 @@ class EvalRoutingTest(unittest.TestCase):
         self.assertNotIn("registry_kind", prompt)
         self.assertNotIn('"gold"', prompt)
 
+    def test_hard_prompt_has_no_type_cues(self):
+        hard = score.prompt_text(score.load_items(), hard=True)
+        rows = [r for r in hard.splitlines() if r.startswith("E")]
+        self.assertEqual(len(rows), 40)
+        self.assertNotRegex(hard, r"C\d{3}")
+        self.assertNotIn("источники:", hard)
+        for r in rows:
+            self.assertNotRegex(r, r"^E\d\d \| (Прогноз|Допущени)|red-team")
+        self.assertEqual(score.strip_cues("Прогноз Q05 (при допущениях C027-C029): порог [C030]; см. (C025)"),
+                         "(при допущениях): порог; см.")
+
     def test_parse_answers_tolerates_fences_and_junk(self):
         text = 'Вот:\n```json\n{"id": "E01", "kind": "Fact", "confidence": 0.9}\n{"id":"E02","kind":"guess"}\n' \
                '{"id": "E03", "kind": "forecast", "confidence": "high"}\n```'
@@ -73,6 +84,17 @@ class EvalRoutingTest(unittest.TestCase):
         self.assertEqual((r["input"], r["output"]), (1000, 200))
         self.assertAlmostEqual(r["usd"], (1000 * 0.1 + 200 * 0.5) / 1e6)
         self.assertEqual(score.parse_answers(r["answer"])["E01"]["kind"], "fact")
+
+    def test_transcript_run_reads_subagent_handback(self):
+        with tempfile.TemporaryDirectory() as d:
+            tp = Path(d) / "agent-y.jsonl"
+            line = {"type": "assistant", "timestamp": "2026-11-11T10:00:05Z",
+                    "message": {"id": "m2", "model": "claude-sonnet-5-5", "usage": {"input_tokens": 10, "output_tokens": 5},
+                                "content": [{"type": "tool_use", "id": "t1", "name": "SubagentHandback",
+                                             "input": {"report": '{"id": "E02", "kind": "forecast", "confidence": 0.7}'}}]}}
+            tp.write_text(json.dumps(line), encoding="utf-8")
+            r = score.transcript_run(tp)
+        self.assertEqual(score.parse_answers(r["answer"])["E02"], {"kind": "forecast", "confidence": 0.7})
 
 
 if __name__ == "__main__":
