@@ -83,7 +83,7 @@ python scripts/strat.py new <slug> --title "…" --budget 5     # новый п�
 python scripts/strat.py status                                  # где мы, что дальше, сколько стоило
 python scripts/strat.py q add --text "…" --why "как меняет решение" --method "…"
 python scripts/strat.py q start Q01 | q done Q01 --claims C003,C004 | q fail Q01 --text "почему"
-python scripts/strat.py source add --type web|doc|data|interview|user|calc|synthetic --title "…" --url … --quote "…" --publisher "…" --date 2026-05
+python scripts/strat.py source add --type web|doc|data|interview|user|calc|synthetic --title "…" --url … --quote "…" --snapshot <файл> --snapshot-kind page|summary|search --publisher "…" --date 2026-05
 python scripts/strat.py claim add --kind fact|hypothesis|forecast|assumption --text "…" --sources S001,S002 --depends C004 --confidence medium --section situation
 python scripts/strat.py claim retract C007 --reason "…"  |  claim supersede C007 --by-id C015 --reason "…"
 python scripts/strat.py impact S004                           # какие утверждения, документы, решения затронуты
