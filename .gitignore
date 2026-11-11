@@ -7,6 +7,8 @@ __pycache__/
 projects/.active
 projects/.activity.jsonl
 projects/.strat.lock
+projects/.sessions/
+projects/.costs-seen.json
 projects/*/costs/*.json
 !projects/demo-*/costs/*.json
 *.tmp

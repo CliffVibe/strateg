@@ -29,6 +29,13 @@ TEMPLATES = ROOT / "templates"
 CONFIG = ROOT / "config"
 ACTIVE = PROJECTS / ".active"
 ACTIVITY = PROJECTS / ".activity.jsonl"  # локальная история активаций (в .gitignore)
+# T06: в одной папке параллельно работают несколько сессий. Общий .active переключал проект всем сразу — команды,
+# хуки, бюджет и стоимость соседней сессии уходили в чужой проект. Теперь у каждой сессии свой активный проект
+# (.sessions/<id>); .active — проект папки по умолчанию для новых сессий (так /resume находит прерванную работу).
+SESSIONS = PROJECTS / ".sessions"
+COSTS_SEEN = PROJECTS / ".costs-seen.json"  # какие транскрипты уже посчитаны (досчёт прерванных ходов)
+SESSION = next((os.environ[k] for k in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID", "STRAT_SESSION")
+                if os.environ.get(k)), None)  # в хуках — из входа (session_id), см. cmd_hook
 BUDGET_TOOLS = {"WebSearch", "WebFetch", "Agent", "Task"}  # дорогие действия: блокируются при превышении бюджета
 
 STAGES = ["intake", "framing", "plan", "collect", "synthesize", "options", "choose",
@@ -156,9 +163,28 @@ def slugify(s: str) -> str:
     return s[:48] or "project"
 
 
+def session_pin() -> Path | None:
+    """Файл активного проекта текущей сессии Claude Code (None — сессия неизвестна: ручной запуск CLI)."""
+    return SESSIONS / SESSION if SESSION and re.fullmatch(r"[\w\-]{1,100}", SESSION) else None
+
+
+def set_active(slug: str, folder: bool = True):
+    """Сделать проект активным для этой сессии и (folder) проектом папки по умолчанию — для новых сессий."""
+    pin = session_pin()
+    changed = active_slug(required=False) != slug or bool(pin and not pin.exists())
+    if folder:
+        ACTIVE.write_text(slug, encoding="utf-8")
+    if pin:
+        pin.parent.mkdir(parents=True, exist_ok=True)
+        pin.write_text(slug, encoding="utf-8")
+    if changed:
+        log_activation(slug)
+
+
 def active_slug(required: bool = True) -> str | None:
-    if ACTIVE.exists():
-        slug = ACTIVE.read_text(encoding="utf-8").strip()
+    pin = session_pin()
+    for f in ([pin] if pin else []) + [ACTIVE]:
+        slug = f.read_text(encoding="utf-8").strip() if f.exists() else ""
         if slug and (PROJECTS / slug).is_dir():
             return slug
     if required:
@@ -205,8 +231,7 @@ def cmd_new(a):
     write_json(p / "plan.json", {"questions": []})
     (p / "journal.md").write_text(f"# Журнал проекта «{a.title or slug}»\n\n", encoding="utf-8")
     journal(p, "проект создан", "system")
-    ACTIVE.write_text(slug, encoding="utf-8")
-    log_activation(slug)
+    set_active(slug)
     print(f"✓ Проект {slug} создан и сделан активным: {p.relative_to(ROOT)}")
 
 
@@ -214,9 +239,7 @@ def cmd_use(a):
     slug = slugify(a.slug)
     if not (PROJECTS / slug).is_dir():
         die(f"Нет проекта {slug}. Есть: {', '.join(list_projects()) or '—'}")
-    if active_slug(required=False) != slug:
-        ACTIVE.write_text(slug, encoding="utf-8")
-        log_activation(slug)
+    set_active(slug)
     print(f"✓ Активный проект: {slug}")
 
 
@@ -822,13 +845,18 @@ def parse_ts(s: str | None) -> dt.datetime | None:
 def log_activation(slug: str):
     """История «какой проект был активен с какого момента» — по ней стоимость сессии делится между проектами."""
     with ACTIVITY.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": now(), "slug": slug}, ensure_ascii=False) + "\n")
+        f.write(json.dumps({"at": now(), "slug": slug, **({"session": SESSION} if SESSION else {})},
+                           ensure_ascii=False) + "\n")
 
 
-def attribute_messages(msgs: dict) -> dict[str, dict]:
+def attribute_messages(msgs: dict, session: str | None = None) -> dict[str, dict]:
     """Разложить сообщения сессии по проектам, активным в момент сообщения. Сообщения до первой активации
-    (разработка агента, разговор до /start) не относятся ни к какому проекту."""
-    events = sorted(((parse_ts(e.get("at")), e.get("slug")) for e in read_jsonl(ACTIVITY)), key=lambda x: x[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc))
+    (разработка агента, разговор до /start) не относятся ни к какому проекту. Если у сессии есть свои активации
+    (с T06 — всегда: SessionStart закрепляет проект), считаем только по ним: переключение папки другой
+    сессией её не касается. Старые сессии без своих активаций — по общей истории папки, как раньше."""
+    rows = read_jsonl(ACTIVITY)
+    own = [e for e in rows if session and e.get("session") == session]
+    events = sorted(((parse_ts(e.get("at")), e.get("slug")) for e in (own or rows)), key=lambda x: x[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc))
     events = [(t, s) for t, s in events if t]
     current = active_slug(required=False)
     out: dict[str, dict] = {}
@@ -900,7 +928,7 @@ def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
     Сессия разработки агента на проекты не списывается: файл сессии остаётся с usd 0 и причиной
     (в т.ч. задним числом — если файл агента правили уже после первых ходов)."""
     res = {}
-    msgs_by_slug = attribute_messages(transcript_usage(transcript))
+    msgs_by_slug = attribute_messages(transcript_usage(transcript), session_id)
     if reason := dev_session_reason(transcript):
         for slug in sorted(set(msgs_by_slug) | {d.parent.parent.name for d in PROJECTS.glob(f"*/costs/{session_id}.json")}):
             write_json(PROJECTS / slug / "costs" / f"{session_id}.json",
@@ -1251,8 +1279,45 @@ def hook_input() -> dict:
         return {}
 
 
-def hook_session_start(_d):
+def reconcile_costs(d):
+    """Досчитать сессии этой папки, чей последний ход не дошёл до Stop-хука: Stop не вызывается, если ход прерван
+    (Ctrl+C, «Стоп») или окно закрыто — затраты прерванного хода терялись (T06). Пересчёт идемпотентен: файл
+    сессии перезаписывается целиком; уже посчитанные и неизменные транскрипты не читаются повторно."""
+    tp = main_transcript(d)
+    if not tp:
+        return
+    seen = read_json(COSTS_SEEN, {})
+    cutoff = time.time() - 14 * 86400
+    for t in sorted(tp.parent.glob("*.jsonl")):
+        if t == tp:
+            continue
+        try:
+            st = t.stat()
+            key = f"{st.st_mtime_ns}:{st.st_size}"
+            if st.st_mtime < cutoff or seen.get(t.stem) == key:
+                continue
+            record_session_costs(t, t.stem)
+            seen[t.stem] = key
+        except (OSError, ValueError) as e:  # один битый транскрипт не мешает остальным
+            print(f"[strat] досчёт стоимости {t.name}: {e}", file=sys.stderr)
+    write_json(COSTS_SEEN, seen)
+
+
+def hook_session_end(d):
+    """Выход из сессии (в т.ч. после Ctrl+C): записать стоимость, не дожидаясь следующей сессии."""
+    if tp := main_transcript(d):
+        record_session_costs(tp, d.get("session_id") or tp.stem)
+
+
+def hook_session_start(d):
+    try:
+        reconcile_costs(d)
+    except Exception as e:  # учёт стоимости не должен мешать старту сессии
+        print(f"[strat] досчёт стоимости: {e}", file=sys.stderr)
     slug = active_slug(required=False)
+    pin = session_pin()
+    if slug and pin and not pin.exists():  # закрепить за сессией проект, активный в папке на момент старта
+        set_active(slug, folder=False)
     if not slug:
         print("Агент-стратег. Активного проекта нет. Предложи пользователю /start (новая задача) "
               f"или выбор из существующих: {', '.join(list_projects()) or 'пока нет'}.")
@@ -1557,10 +1622,12 @@ def cmd_budget(a):
 
 
 def cmd_hook(a):
+    global SESSION
     d = hook_input()
+    SESSION = d.get("session_id") or SESSION  # активный проект — этой сессии, а не папки
     try:
         {"session-start": hook_session_start, "injection-scan": hook_injection_scan,
-         "protect": hook_protect, "stop": hook_stop}[a.name](d)
+         "protect": hook_protect, "stop": hook_stop, "session-end": hook_session_end}[a.name](d)
     except SystemExit:
         raise
     except Exception as e:  # сбой хука не должен ронять работу агента, но должен быть виден
@@ -1634,7 +1701,7 @@ def main(argv=None):
     s = sp.add_parser("render", help="report.md → report.html"); s.add_argument("--file"); s.set_defaults(f=cmd_render)
     sp.add_parser("how", help="раздел «Как получен результат» из журнала, реестров и стоимости").set_defaults(f=cmd_how)
     s = sp.add_parser("hook", help="вход для хуков Claude Code / Cursor")
-    s.add_argument("name", choices=["session-start", "injection-scan", "protect", "stop"]); s.set_defaults(f=cmd_hook)
+    s.add_argument("name", choices=["session-start", "injection-scan", "protect", "stop", "session-end"]); s.set_defaults(f=cmd_hook)
 
     a = ap.parse_args(argv)
     PROJECTS.mkdir(exist_ok=True)
