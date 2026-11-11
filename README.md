@@ -11,7 +11,7 @@
 **Нужно:** Claude Code (или Cursor), Python 3.10+ в PATH как `python`, Git. Подписка Claude или ключ API.
 Платные сервисы сверх этого — **не нужны**. Необязательно: ключ Jev (TypeSafe) для дешёвой классификации — см. `docs/04-tooling.md`.
 
-1. `git clone … && cd strateg` → `python -m unittest discover -s tests` (должно быть OK).
+1. `git clone https://github.com/CliffVibe/strateg.git && cd strateg` → `python -m unittest discover -s tests` (должно быть OK).
 2. `claude` в папке → доверить папку. Хук покажет: «Активного проекта нет».
 3. Напиши: **«/start — хочу понять, почему падает удержание в нашем приложении»** (или свою задачу) и приложи материалы.
 
