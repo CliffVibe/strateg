@@ -1,0 +1,41 @@
+{
+  "slug": "t06-sandbox",
+  "title": "T06 песочница: устойчивость (обрыв, недоступный источник)",
+  "created_at": "2026-11-11T14:42:18+03:00",
+  "stage": "collect",
+  "history": [
+    {
+      "stage": "intake",
+      "at": "2026-11-11T14:42:18+03:00",
+      "note": "создан"
+    },
+    {
+      "stage": "framing",
+      "at": "2026-11-11T14:42:26+03:00",
+      "note": "песочница T06: интейк по заданию T06",
+      "approved": true
+    },
+    {
+      "stage": "plan",
+      "at": "2026-11-11T14:42:27+03:00",
+      "note": "3 вопроса",
+      "approved": false
+    },
+    {
+      "stage": "collect",
+      "at": "2026-11-11T14:42:27+03:00",
+      "note": "песочница T06: план по заданию T06, бюджет $2",
+      "approved": true
+    }
+  ],
+  "gate": {
+    "pending": false,
+    "question": null
+  },
+  "next_action": "Все вопросы закрыты (Q01, Q03 done; Q02 failed — источник недоступен). Бюджет превышен: дальше только с решения человека (strat budget). Песочница T06: synthesize не нужен, сверить поведение с docs/tasks/T06-resilience.md",
+  "budget_usd": 2.0,
+  "allowed_sources": [
+    "*"
+  ],
+  "last_turn_at": "2026-11-11T15:26:02+03:00"
+}

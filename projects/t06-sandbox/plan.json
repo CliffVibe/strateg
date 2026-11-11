@@ -1,0 +1,40 @@
+{
+  "questions": [
+    {
+      "id": "Q01",
+      "text": "Как определяется подход Jobs To Be Done (кто автор, суть)?",
+      "why_matters": "песочница T06: проверка обычного вопроса",
+      "method": "WebFetch https://en.wikipedia.org/wiki/Jobs_to_be_done",
+      "status": "done",
+      "attempts": 2,
+      "answer_claims": [
+        "C001"
+      ],
+      "updated_at": "2026-11-11T15:27:06+03:00"
+    },
+    {
+      "id": "Q02",
+      "text": "Какие тарифы на антифрод-услуги опубликованы в отчёте регулятора 2026?",
+      "why_matters": "песочница T06: заведомо недоступный источник",
+      "method": "WebFetch https://tarify-antifraud-t06.invalid/report-2026 (единственный источник; домен .invalid не существует)",
+      "status": "failed",
+      "attempts": 1,
+      "answer_claims": [],
+      "updated_at": "2026-11-11T15:25:09+03:00",
+      "error": "Единственный источник на домене .invalid (зарезервирован RFC 6761, не разрешается никогда); запрос не делался — бюджет проекта уже превышен (.15 из ), а результат заведомо отрицательный. Утверждений нет; альтернативного источника в плане нет"
+    },
+    {
+      "id": "Q03",
+      "text": "Как определяется показатель удержания клиентов (customer retention rate)?",
+      "why_matters": "песочница T06: вопрос, прерванный посреди работы",
+      "method": "WebFetch https://en.wikipedia.org/wiki/Customer_retention",
+      "status": "done",
+      "attempts": 1,
+      "answer_claims": [
+        "C002",
+        "C003"
+      ],
+      "updated_at": "2026-11-11T15:25:02+03:00"
+    }
+  ]
+}
