@@ -91,5 +91,8 @@ report.md) → решения (based_on). `strat impact S004` проходит �
 - ПДн: `strat check` ищет email/телефоны/номера документов в `inputs/`.
 
 ## Переносимость
-Cursor читает `AGENTS.md`, `CLAUDE.md`, `.claude/agents/`, навыки Claude и импортирует хуки Claude Code (по обзору spotdev.co.uk, 21.10.2026;
-проверить в T07). Всё состояние — в файлах проекта и не зависит от среды. CLI `strat` работает из любого терминала.
+Проверено в T07 (Cursor CLI 2026.11.11): Cursor сам берёт `AGENTS.md` и навыки `.claude/skills/`; хуки — из своего
+`.cursor/hooks.json` (`strat hook … --cursor` переводит формат Cursor: `Shell`→`Bash`, `additional_context`,
+`permission: deny`), хуки `.claude/` в Cursor ничего не делают; субагенты — копии в `.cursor/agents/` с `model: inherit`
+(`strat cursor-sync`). Всё состояние — в файлах проекта и не зависит от среды. CLI `strat` работает из любого терминала.
+Подробно и ограничения — `docs/04-tooling.md`, README «Ограничения».

@@ -104,9 +104,9 @@ class CursorTest(unittest.TestCase):
             self.assertTrue(c.startswith(guard), c)
         bash = shutil.which("bash")
         if os.name == "nt":  # Claude Code на Windows — Git Bash; bash из System32 — это WSL
-            git = shutil.which("git")
-            cand = Path(git).resolve().parent.parent / "bin" / "bash.exe" if git else None
-            bash = str(cand) if cand and cand.exists() else None
+            git = shutil.which("git")  # Git\cmd\git.exe или Git\mingw64\bin\git.exe — ищем Git\bin\bash.exe выше
+            cands = [d / "bin" / "bash.exe" for d in Path(git).resolve().parents][:4] if git else []
+            bash = next((str(c) for c in cands if c.exists()), None)
         if not bash:
             self.skipTest("нет bash (Git Bash)")
         payload = json.dumps({"session_id": "x", "tool_name": "Edit", "tool_input": {"file_path": "projects/d/inputs/a.md"}})

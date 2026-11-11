@@ -17,7 +17,8 @@ REPORT = dt.datetime.fromisoformat("2026-11-11T00:54:25+03:00")  # journal/state
 
 
 def main():
-    tr = Path.home() / ".claude" / "projects" / "C--Users-ivanl-source-strateg" / f"{SESSION}.jsonl"
+    folder = re.sub(r"[^A-Za-z0-9]", "-", str(ROOT))  # так Claude Code называет папку транскриптов проекта
+    tr = Path.home() / ".claude" / "projects" / folder / f"{SESSION}.jsonl"
     msgs = strat.transcript_usage(tr)
     upto = {k: v for k, v in msgs.items() if (t := strat.parse_ts(v["ts"])) and t <= REPORT}
     first = min(strat.parse_ts(v["ts"]) for v in msgs.values())

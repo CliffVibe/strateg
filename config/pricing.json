@@ -1,8 +1,8 @@
 {
-  "as_of": "2026-10-31",
-  "source": "tech-insider.org (сравнение Opus/Sonnet/Haiku 5.5, 31.10.2026) и usagepricing.com; сверить с официальной страницей цен Anthropic перед сдачей",
+  "as_of": "2026-11-11",
+  "source": "официальная страница Anthropic https://platform.claude.com/docs/en/about-claude/pricing (сверено 11.11.2026, T10: все значения совпали с прежними из tech-insider.org/usagepricing.com от 31.10.2026)",
   "currency": "USD per 1M tokens",
-  "note": "cache_write — 5-минутный кэш (1.25× input), cache_write_1h — часовой кэш; 1h = 2× input по стандартному множителю Anthropic (допущение, сверить). Haiku: цены для промптов до 100K токенов.",
+  "note": "cache_write — 5-минутный кэш, cache_write_1h — часовой кэш, cache_read — попадания и обновления кэша (Opus/Sonnet 5.5 — 0,05× input). Haiku 5.5: цены для промптов до 100K токенов; свыше — $0,50 / $2,50 (кэш $0,625 / $1 / $0,05) — в учёте не различаем: verifier/respondent работают с контекстом ≈ 35–40 тыс. токенов. Веб-поиск — $10 за 1000 запросов; web fetch — без доплаты, только токены. Режим inference_geo=us (×1,1) и fast mode агент не использует.",
   "models": {
     "claude-opus-5-5": {
       "input": 4.0,
