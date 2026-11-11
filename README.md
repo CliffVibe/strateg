@@ -43,6 +43,7 @@ memory/              уроки и предпочтения между прое�
 projects/<slug>/     одна задача: inputs/ (сырьё) · snapshots/ · реестры *.jsonl · state.json · journal.md · work/ · report.md · costs/
 scripts/strat.py     CLI: состояние, реестры источников/утверждений/решений, анализ влияния, проверки, стоимость, рендер, хуки
 .claude/             5 субагентов · 10 навыков · хуки (состояние при старте, защита сырья, поиск внедрённых инструкций, учёт стоимости)
+.cursor/             для Cursor: те же хуки в формате Cursor (hooks.json) и субагенты (генерирует strat cursor-sync)
 docs/                концепция, архитектура, план, инструменты, протокол сравнения, задачи разработки, журнал
 ```
 
@@ -52,3 +53,24 @@ docs/                концепция, архитектура, план, ин�
 - Открытые источники по российскому рынку часто без методологии — агент помечает их низкой надёжностью и говорит о пробелах.
 - Стоимость на подписке — оценка в ценах API (цены — `config/pricing.json`, сверять перед сдачей).
 - Windows: хуки запускаются через Git Bash (ставится вместе с Claude Code). Если `python` не находится — замените на `py` в `.claude/settings.json`.
+
+### Cursor (нужен ≥ 3.0.0)
+
+Правила (`AGENTS.md`) и навыки (`.claude/skills/`, вызов через `/`) Cursor берёт сам — при включённой настройке
+Settings → Agents → Third-Party Imports («Include Third-Party Plugins, Skills, and Other Configs», включена по умолчанию).
+Что отличается от Claude Code:
+
+- **Хуки** работают из `.cursor/hooks.json`, а не из `.claude/settings.json`. У Cursor свои имена инструментов (`Shell`
+  вместо `Bash`, `Write` вместо `Edit`) и свой формат входа, а на Windows хуки идут через PowerShell. Хуки из `.claude/`
+  Cursor тоже запускает, но они ничего не делают, чтобы не срабатывать дважды.
+- **Субагенты** — копии в `.cursor/agents/` с `model: inherit` (как у основного чата): алиасы `sonnet`/`haiku`/`opus`
+  Cursor не описывает. Значит, маршрутизация по моделям (AGENTS.md §5) в Cursor не работает, пока не задать id моделей:
+  `python scripts/strat.py cursor-sync --models haiku=<id>,sonnet=<id>,opus=<id>`. Ограничения инструментов субагентов
+  (`tools:`) в Cursor нет — они записаны в текст субагента. После правки `.claude/agents/` — `strat cursor-sync`
+  (тест следит за расхождением).
+- Проверено в Cursor CLI 2026.11.11 (см. `docs/tasks/T07-portability.md`); окно редактора — по чек-листу там же.
+- **Стоимость** хук считает только по транскриптам Claude Code (а `stop` в `agent -p` Cursor не вызывает). Работу в Cursor записывайте вручную в
+  `projects/<slug>/costs/cursor.manual.jsonl` (`{"what": "Cursor, сессия …", "usd": …}`) по данным Cursor Usage.
+  Бюджет-стоп считает только то, что записано.
+- **Секреты**: запреты чтения из `.claude/settings.json` Cursor не переносит — `.env` закрыт через `.cursorignore`.
+- Если импорт из `.claude/` выключен: `python scripts/strat.py cursor-sync --skills` копирует навыки в `.cursor/skills/`.

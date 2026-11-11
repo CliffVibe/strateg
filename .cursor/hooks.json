@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "python scripts/strat.py hook session-start --cursor", "timeout": 15 }
+    ],
+    "preToolUse": [
+      { "command": "python scripts/strat.py hook protect --cursor", "matcher": "Shell|Write|Delete|Task|WebSearch|WebFetch", "timeout": 10 }
+    ],
+    "postToolUse": [
+      { "command": "python scripts/strat.py hook injection-scan --cursor", "matcher": "WebFetch|WebSearch|Read|Shell", "timeout": 10 }
+    ],
+    "stop": [
+      { "command": "python scripts/strat.py hook stop --cursor", "timeout": 30 }
+    ],
+    "sessionEnd": [
+      { "command": "python scripts/strat.py hook session-end --cursor", "timeout": 30 }
+    ]
+  }
+}

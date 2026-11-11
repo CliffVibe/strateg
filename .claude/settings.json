@@ -39,21 +39,21 @@
   },
   "hooks": {
     "SessionStart": [
-      { "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook session-start", "timeout": 15 } ] }
+      { "hooks": [ { "type": "command", "command": "[ -f \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" ] && python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook session-start", "timeout": 15 } ] }
     ],
     "PreToolUse": [
       { "matcher": "Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|WebSearch|WebFetch|Agent|Task",
-        "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook protect", "timeout": 10 } ] }
+        "hooks": [ { "type": "command", "command": "[ -f \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" ] && python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook protect", "timeout": 10 } ] }
     ],
     "PostToolUse": [
       { "matcher": "WebFetch|WebSearch|Read|Bash|PowerShell",
-        "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook injection-scan", "timeout": 10 } ] }
+        "hooks": [ { "type": "command", "command": "[ -f \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" ] && python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook injection-scan", "timeout": 10 } ] }
     ],
     "Stop": [
-      { "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook stop", "timeout": 30 } ] }
+      { "hooks": [ { "type": "command", "command": "[ -f \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" ] && python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook stop", "timeout": 30 } ] }
     ],
     "SessionEnd": [
-      { "hooks": [ { "type": "command", "command": "python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook session-end", "timeout": 30 } ] }
+      { "hooks": [ { "type": "command", "command": "[ -f \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" ] && python \"$CLAUDE_PROJECT_DIR/scripts/strat.py\" hook session-end", "timeout": 30 } ] }
     ]
   }
 }

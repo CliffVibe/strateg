@@ -31,6 +31,40 @@
 импортирует хуки Claude Code. Проверить в T07; если навыки не подхватятся — скопировать в `.cursor/skills/` скриптом.
 Учесть: уязвимость Cursor < 3.0.0 выполняла хуки из `.claude/settings.local.json` без подтверждения — нужен Cursor ≥ 3.0.0.
 
+**Уточнено по официальной документации (cursor.com/docs: hooks, reference/third-party-hooks, context/skills, subagents,
+context/rules; прочитано 11.11.2026, T07):**
+- `AGENTS.md` в корне — да. `CLAUDE.md` и импорт `@AGENTS.md` — не описаны (нам не нужны: правила целиком в `AGENTS.md`).
+- Навыки: читает `.claude/skills/<имя>/SKILL.md` (frontmatter `name` = имя папки, `description`), вызов `/имя`.
+- Субагенты: читает `.claude/agents/`, но `model` — только `inherit` или id модели Cursor; поля `tools` нет; при
+  совпадении имён `.cursor/agents/` важнее. Поэтому — `strat cursor-sync` → `.cursor/agents/` с `model: inherit`.
+- Хуки Claude Code импортируются, имена переводятся (`PreToolUse`→`preToolUse`, `Bash`→`Shell`, `Edit`→`Write`), но формат
+  входа для них не описан, а на форуме — сообщения, что импортированные PreToolUse-хуки получают вход в формате Cursor и
+  «пропускают» действие. На Windows Cursor запускает хуки через PowerShell — `"$CLAUDE_PROJECT_DIR/…"` там не раскрывается.
+  Решение: родной `.cursor/hooks.json` (пути от корня проекта, флаг `--cursor`); `strat hook` без флага на входе Cursor
+  ничего не делает — без двойного срабатывания.
+- Формат Cursor: вход — `conversation_id`, `tool_name`, `tool_input`, `tool_output`, `cursor_version`; блокировка — код 2
+  или `{"permission": "deny", "user_message", "agent_message"}`; контекст агенту — `additional_context` (sessionStart,
+  postToolUse). У `stop` есть только `followup_message` (запускает новый ход) — предупреждение о бюджете туда не пишем.
+- Не описано в документации и проверяется вручную (T07): `tool_input` у Write/Delete (`file_path` или `path` — берём оба),
+  есть ли в транскрипте Cursor данные о токенах (пока нет — стоимость вручную).
+
+**Проверено вживую в Cursor CLI 2026.11.11 (`agent -p`, Windows, 11.11.2026):**
+- Навыки из `.claude/skills/` видны все 11. Хуки `.cursor/hooks.json` вызываются из корня проекта: `sessionStart`,
+  `preToolUse` (`tool_name: "Shell"`, `tool_input`: `command`, `cwd`, `timeout`), `sessionEnd`; `stop` в режиме `-p`
+  не вызывался. Общие поля: `conversation_id`, `session_id`, `cursor_version`, `transcript_path`, `workspace_roots`.
+- **Дыра:** импортированные хуки `.claude/settings.json` запускаются в PowerShell, `$CLAUDE_PROJECT_DIR` пуст → python
+  не находит `C:\scripts\strat.py` → код 2 → Cursor запрещал любую команду терминала. Исправлено: команда начинается с
+  `[ -f "$CLAUDE_PROJECT_DIR/scripts/strat.py" ] &&` — в Git Bash (Claude Code) поведение прежнее, в PowerShell строка
+  не разбирается (код 1, не запрет). Тест `test_claude_hooks_do_not_block_when_project_dir_unset`.
+- Отладка: `STRAT_HOOK_LOG=<файл>` — каждый вызов хука пишет строку (хук, событие, инструмент, имена полей).
+- После исправления прогнаны 7 проверок агентом Cursor (`-p --force`, модель Auto): «продолжим» восстановил T02
+  (этап support, D001, шаг 0); субагент `verifier` запущен; запись в `inputs/` (Write), удаление `claims.jsonl` (Delete) и
+  `echo >> claims.jsonl` (Shell) запрещены с нашим текстом причины; `strat status` выполняется; внедрённая фраза в
+  выводе Shell найдена, агент получил предупреждение. Поля: Write — `file_path`, `content`; Delete — `file_path`;
+  Task — `description`, `prompt`, `subagent_type`. Хук `stop` в режиме `-p` не вызывался ни разу — стоимость в Cursor
+  этим путём не записывается. Всего ≈ 0,7 млн токенов (по `usage` в выводе).
+- В выводе `--output-format stream-json` у результата есть `usage` (токены) — основа для учёта стоимости в Cursor (не сделано).
+
 ## Цены
 `config/pricing.json`: Opus 5.5 $4/$20, Sonnet 5.5 $2/$10, Haiku 5.5 $0,10/$0,50 за 1M (вход/выход), веб-поиск $10/1000 —
 по сторонним источникам на 31.10.2026. **Сверить с официальной страницей Anthropic перед сдачей.**

@@ -1,0 +1,4 @@
+# Cursor не переносит запреты чтения из .claude/settings.json (permissions.deny) — секреты закрываем здесь (T07)
+.env
+.env.*
+!.env.example
