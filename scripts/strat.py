@@ -1275,7 +1275,7 @@ def hook_injection_scan(d):
     if not hits:
         return
     slug = active_slug(required=False)
-    if slug:
+    if slug and not is_dev_session(d):  # чтение кода агента в сессии разработки — не событие проекта
         # в журнал — «обезвреженные» фрагменты: иначе чтение журнала (/resume, cat) снова срабатывает и множит записи
         safe = [h.replace(" ", "·").replace("<", "‹").replace(">", "›") for h in hits]
         journal(pdir(slug), f"в результате {d.get('tool_name')} найдены фрагменты-инструкции: {safe}", "security")
@@ -1496,7 +1496,7 @@ def hook_stop(d):
     if tp:
         record_session_costs(tp, d.get("session_id") or tp.stem)
     slug = active_slug(required=False)
-    if not slug:
+    if not slug or is_dev_session(d):  # сессия разработки не трогает state.json проекта
         return
     p = pdir(slug)
     st = read_json(p / "state.json")
