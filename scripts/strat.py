@@ -663,6 +663,48 @@ def cmd_decision(a):
         write_jsonl(p / "decisions.jsonl", rows)
         print(f"✓ обязательство добавлено к {a.id}")
         return
+    changed = [c["id"] for c in claims.values() if c.get("status") != "active"]
+    downstream = set(impact_of(p, changed)["claims"]) if changed else set()
+    if a.action == "confirm":
+        # человек пересмотрел решение и оставил его в силе: перевязать основания на действующие утверждения
+        d = next((x for x in rows if x["id"] == a.id), None) or die(f"Нет решения {a.id}")
+        if d.get("status") != "active":
+            die(f"{a.id} не действует (status={d.get('status')})")
+        if not a.note:
+            die("--note обязателен: что пересмотрели и почему решение остаётся в силе")
+        new = split_ids(a.based_on)
+        if not new:
+            die("--based-on обязателен: действующие утверждения, на которых теперь держится решение")
+        missing = [c for c in new if c not in claims]
+        if missing:
+            die(f"Нет утверждений: {', '.join(missing)}")
+        inactive = [f"{c} ({claims[c]['status']}"
+                    + (f" → {claims[c]['superseded_by']}" if claims[c].get("superseded_by") else "") + ")"
+                    for c in new if claims[c]["status"] != "active"]
+        if inactive:
+            die(f"Основание должно быть действующим утверждением: {', '.join(inactive)}")
+        indirect = [c for c in new if c in downstream]
+        if indirect:
+            die(f"Основания опираются на отозванные/заменённые утверждения: {', '.join(indirect)} "
+                f"(strat impact) — сначала пересчитай их, затем подтверждай")
+        prev = d.get("based_on", [])
+        rev = {"at": now(), "note": a.note, "based_on": prev, "review_if": d.get("review_if"),
+               "review_at": d.get("review_at")}
+        d["based_on"] = new
+        if a.review_if is not None:
+            d["review_if"] = a.review_if
+        if a.review_at is not None:
+            d["review_at"] = a.review_at
+        d.setdefault("revisions", []).append(rev)
+        write_jsonl(p / "decisions.jsonl", rows)
+        removed = [c for c in prev if c not in new]
+        added = [c for c in new if c not in prev]
+        diff = f"−{','.join(removed) or '—'} +{','.join(added) or '—'}"
+        extra = "".join([" · условие пересмотра обновлено" if a.review_if is not None else "",
+                         f" · дата пересмотра {a.review_at}" if a.review_at is not None else ""])
+        journal(p, f"решение {a.id} подтверждено, основания {diff}{extra}: {a.note}", "decision")
+        print(f"✓ {a.id} подтверждено: основания {diff}{extra}")
+        return
     # review: что пора пересмотреть
     today = dt.date.today().isoformat()
     found = False
@@ -674,9 +716,7 @@ def cmd_decision(a):
         if stale:
             reasons.append(f"основания изменились: {', '.join(stale)}")
         # косвенно: основание опирается (транзитивно) на отозванное/заменённое утверждение
-        changed = [c["id"] for c in claims.values() if c.get("status") != "active"]
-        if changed:
-            downstream = set(impact_of(p, changed)["claims"])
+        if downstream:
             indirect = [c for c in d.get("based_on", []) if c in downstream and c not in stale]
             if indirect:
                 reasons.append(f"основания опираются на изменённые утверждения: {', '.join(indirect)}")
@@ -1689,9 +1729,9 @@ def main(argv=None):
     s = sp.add_parser("impact", help="что затронет изменение S/C"); s.add_argument("ids")
     s.add_argument("--json", action="store_true"); s.set_defaults(f=cmd_impact)
 
-    s = sp.add_parser("decision", help="решения: add|commit|review")
-    s.add_argument("action", choices=["add", "commit", "review"]); s.add_argument("id", nargs="?")
-    for o in ["title", "chosen", "rejected", "owner", "metric", "review-at", "review-if", "based-on", "what", "due"]:
+    s = sp.add_parser("decision", help="решения: add|commit|review|confirm (оставить в силе на новых основаниях)")
+    s.add_argument("action", choices=["add", "commit", "review", "confirm"]); s.add_argument("id", nargs="?")
+    for o in ["title", "chosen", "rejected", "owner", "metric", "review-at", "review-if", "based-on", "what", "due", "note"]:
         s.add_argument(f"--{o}", dest=o.replace("-", "_"))
     s.set_defaults(f=cmd_decision)
 

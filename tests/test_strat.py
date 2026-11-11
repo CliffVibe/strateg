@@ -149,6 +149,49 @@ class StratTest(unittest.TestCase):
         self.ok("claim", "supersede", "C001", "--by-id", "C004", "--reason", "свежие данные")
         self.assertIn("опираются на изменённые утверждения: C003", self.ok("decision", "review"))
 
+    def test_confirm_rebinds_decision_to_active_claims(self):
+        # T05: решение пересмотрено и оставлено в силе — review не должен вечно предлагать пересмотр
+        self._chain()  # D001 основано на C003 → C002 → C001
+        self.ok("decision", "add", "--title", "Второе", "--chosen", "X", "--based-on", "C001", "--owner", "PM")
+        self.ok("claim", "add", "--kind", "forecast", "--text", "Потеря 8 млн", "--depends", "C002")  # C004
+        self.ok("claim", "supersede", "C003", "--by-id", "C004", "--reason", "пересчёт")
+        self.assertIn("D001 «Запуск»: основания изменились: C003", self.ok("decision", "review"))
+
+        # отказ: заменённое основание, несуществующее, без заметки
+        self.assertIn("C003 (superseded → C004)", self.fails("decision", "confirm", "D001",
+                                                             "--based-on", "C003,C004", "--note", "x"))
+        self.assertIn("Нет утверждений: C099", self.fails("decision", "confirm", "D001",
+                                                          "--based-on", "C099", "--note", "x"))
+        self.fails("decision", "confirm", "D001", "--based-on", "C004")
+        self.ok("claim", "retract", "C001", "--reason", "источник отозван")
+        self.assertIn("retracted", self.fails("decision", "confirm", "D002", "--based-on", "C001", "--note", "x"))
+        # C004 опирается на C002 → C001 (отозвано): подтверждать рано
+        self.assertIn("опираются на отозванные/заменённые утверждения: C004",
+                      self.fails("decision", "confirm", "D001", "--based-on", "C004", "--note", "x"))
+        self.ok("claim", "add", "--kind", "assumption", "--text", "Отток 5%")  # C005
+        self.ok("claim", "add", "--kind", "forecast", "--text", "Потеря 6 млн", "--depends", "C005")  # C006
+
+        out = self.ok("decision", "confirm", "D001", "--based-on", "C006", "--review-if", "потери > 7 млн",
+                      "--note", "пересчёт не меняет выбор")
+        self.assertIn("−C003 +C006", out)
+        d = json.loads((self.p / "decisions.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(d["based_on"], ["C006"])
+        self.assertEqual(d["review_if"], "потери > 7 млн")
+        self.assertEqual(d["status"], "active")
+        self.assertEqual(len(d["revisions"]), 1)
+        rev = d["revisions"][0]
+        self.assertEqual(rev["based_on"], ["C003"])
+        self.assertIsNone(rev["review_if"])
+        self.assertEqual(rev["note"], "пересчёт не меняет выбор")
+        self.assertTrue(rev["at"])
+        self.assertIn("решение D001 подтверждено", (self.p / "journal.md").read_text(encoding="utf-8"))
+
+        review = self.ok("decision", "review")
+        self.assertNotIn("D001", review)
+        self.assertIn("D002", review)  # другое решение по-прежнему требует внимания
+        self.ok("decision", "confirm", "D002", "--based-on", "C005", "--note", "новые данные")
+        self.assertIn("Пересматривать нечего", self.ok("decision", "review"))
+
     def test_stage_sets_default_next_action(self):
         self.ok("stage", "framing", "--approved")
         self.assertIn("вопросов, меняющих решение", self.state()["next_action"])
