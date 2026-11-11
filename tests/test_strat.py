@@ -386,6 +386,35 @@ class StratTest(unittest.TestCase):
         self.assertNotIn("C002:", out)
         self.assertNotIn("C003:", out)
 
+    def test_date_from_required_for_weak_snapshot(self):
+        # T08: дата из пересказа WebFetch была на 3 года новее страницы — устаревший факт ушёл в отчёт как свежий
+        snap = self._snap()
+        web = ["source", "add", "--type", "web", "--snapshot", snap, "--quote", "до 3 млн человек", "--date", "2026-07-16"]
+        self.assertIn("--date-from", self.fails(*web, "--snapshot-kind", "summary", "--title", "A", "--url", "https://a.ru/1"))
+        out = self.ok(*web, "--snapshot-kind", "summary", "--date-from", "summary", "--title", "A", "--url", "https://a.ru/1")
+        self.assertIn("не со страницы", out)                                                                       # S001
+        self.ok(*web, "--snapshot-kind", "page", "--title", "B", "--url", "https://b.ru/1")                          # S002
+        row = json.loads((self.p / "sources.jsonl").read_text(encoding="utf-8").splitlines()[0])
+        self.assertEqual(row["published_from"], "summary")
+        self.assertIn("C001: дата источника не подтверждена страницей",
+                      self.ok("claim", "add", "--kind", "fact", "--text", "eSIM — до 3 млн", "--sources", "S001"))
+        self.assertNotIn("дата источника", self.ok("claim", "add", "--kind", "fact", "--text", "eSIM — до 3 млн",
+                                                     "--sources", "S001,S002"))  # есть источник с датой со страницы
+
+    def test_fact_numbers_must_be_in_source(self):
+        # T08: 9 фактов из 20 оказались точнее своей страницы (даты, числа, которых на ней нет)
+        snap = self._snap("Выручка 525,6 млрд руб., рентабельность 42,30%, тариф 1 499 ₽. Опрос 28 февраля 2025 г., "
+                          "12,000 respondents.")
+        self.ok("source", "add", "--type", "web", "--title", "A", "--url", "https://a.ru/x", "--snapshot", snap,
+                "--snapshot-kind", "page", "--quote", "Выручка 525,6 млрд руб.")
+        ok = "Выручка 525,6 млрд, рентабельность 42,3%, тариф 1499 ₽, опрос 28.02.2025, 12 000 человек, за 2 года [C001]"
+        self.assertNotIn("числа, которых нет", self.ok("claim", "add", "--kind", "fact", "--text", ok, "--sources", "S001"))
+        bad = "Выручка 525,6 млрд (+8,15% г/г), опрос 17.06.2025"
+        out = self.ok("claim", "add", "--kind", "fact", "--text", bad, "--sources", "S001")
+        self.assertIn("C002: в тексте есть числа, которых нет ни в цитате, ни в снимке источника: 8.15, 17.6", out)
+        self.assertIn("C002: в тексте есть числа", self.ok("check"))  # предупреждение, а не ошибка
+        self.assertNotIn("C001:", self.ok("check"))
+
     def test_quote_in_pdf_is_flagged_for_verifier(self):
         (self.p / "inputs" / "r.pdf").write_bytes(b"%PDF-1.4")
         out = self.ok("source", "add", "--type", "doc", "--title", "Отчёт", "--path", "inputs/r.pdf", "--quote", "x")

@@ -65,6 +65,10 @@ SNAPSHOT_KINDS = {"page": "текст страницы или документа
                   "summary": "пересказ/конспект (в т.ч. ответ WebFetch, обработанный моделью)",
                   "search": "выдержка из поисковой выдачи"}
 WEAK_SNAPSHOTS = {"summary", "search"}
+# Откуда дата публикации (T08: дата из пересказа WebFetch оказалась на 3 года новее страницы — устаревший факт
+# приняли за свежий и построили на нём вывод о конкурентах)
+DATE_FROM = {"page": "видна на странице или в документе", "summary": "из пересказа (ответ WebFetch)",
+             "search": "из выдачи поиска", "user": "сообщил человек"}
 CLAIM_KINDS = ["fact", "hypothesis", "forecast", "assumption"]
 STATUSES = ["active", "superseded", "retracted"]
 
@@ -503,6 +507,10 @@ def cmd_source(a):
             die("Укажи вид снимка --snapshot-kind: " + "; ".join(f"{k} — {v}" for k, v in SNAPSHOT_KINDS.items()))
         digest = sha256_file(sp)
         snap = str(sp)
+    if a.date and a.type == "web" and a.snapshot_kind in WEAK_SNAPSHOTS and not a.date_from:
+        die("Откуда дата публикации? При снимке-пересказе или выдаче поиска дата могла прийти не со страницы. "
+            "--date-from " + " | ".join(f"{k} ({v})" for k, v in DATE_FROM.items()) +
+            ". Не видел дату на странице — так и укажи (summary/search) или не передавай --date.")
     # идемпотентность: тот же URL/файл с тем же содержимым — не дублируем
     for r in rows:
         same_url = a.url and r.get("url") == a.url and (digest is None or r.get("sha256") == digest)
@@ -517,7 +525,8 @@ def cmd_source(a):
     sid = next_id(rows, "S")
     row = {
         "id": sid, "type": a.type, "title": a.title, "url": a.url, "path": a.path,
-        "publisher": a.publisher, "published": a.date, "retrieved_at": now(),
+        "publisher": a.publisher, "published": a.date,
+        **({"published_from": a.date_from} if a.date and a.date_from else {}), "retrieved_at": now(),
         "quote": a.quote, "snapshot": snap, "snapshot_kind": a.snapshot_kind if snap else None, "sha256": digest,
         "reliability": a.reliability, "note": a.note,
     }
@@ -526,6 +535,9 @@ def cmd_source(a):
         die("Источник не записан: " + "; ".join(probs))
     for w in warns:
         print(f"⚠ {w}")
+    if row.get("published_from") in WEAK_SNAPSHOTS:
+        print(f"⚠ {sid}: дата {a.date} — {DATE_FROM[row['published_from']]}, не со страницы. Если вывод зависит от "
+              "свежести (цены, «у конкурента нет», «на сегодня»), открой страницу и сверь дату.")
     rows.append(row)
     write_jsonl(p / "sources.jsonl", rows)
     journal(p, f"источник {sid}: {a.title}", "source")
@@ -543,6 +555,63 @@ def weak_fact_warning(c: dict, sources: dict) -> str | None:
                 f"({', '.join(s['id'] + ':' + s['snapshot_kind'] for s in srcs)}) — не выше medium, "
                 "пока нет текста страницы (--snapshot-kind page)")
     return None
+
+
+MONTHS = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"]
+MONTH_RE = re.compile(r"\b(\d{1,2})\s+(" + "|".join(m + r"[а-я]*" for m in MONTHS) + r")", re.I)
+
+
+def numbers_in(s: str) -> set[str]:
+    """Числа текста в одном виде, чтобы сравнить утверждение с источником: «1 499», «12,000» → 1499, 12000;
+    «79,37» → 79.37; даты «28.02.2025» и «28 февраля 2025» → d28.2 и 2025. Однозначные числа не берём: их часто пишут
+    словами («два года»). Ссылки [C012]/[S004] и ID — не числа."""
+    s = re.sub(r"\[[CSD]\d{3}[^\]]*\]|\b[CSDQ]\d{2,3}\b", " ", s)
+    s = re.sub(r"[   ]", " ", s)
+    out = set()
+    for m in MONTH_RE.finditer(s):
+        word = m.group(2).lower()
+        k = next(i for i, p in enumerate(MONTHS) if word.startswith(p) and (p != "ма" or word.startswith(("мая", "май"))))
+        out.add(f"d{int(m.group(1))}.{k + 1}")
+    s = MONTH_RE.sub(" ", s)
+
+    def date(m):
+        out.add(f"d{int(m.group(1))}.{int(m.group(2))}")
+        return " " + (m.group(3) or "") + " "
+    s = re.sub(r"\b(\d{1,2})\.(\d{1,2})(?:\.(\d{4}))?\b", date, s)
+    s = re.sub(r"(?<=\d) (?=\d{3}(?!\d))", "", s)
+    s = re.sub(r"(?<=\d),(?=\d{3}(?!\d))", "", s)  # 12,000 — тысячи на английский манер
+    s = re.sub(r"(?<=\d),(?=\d)", ".", s)
+    nums = (re.sub(r"\.$", "", re.sub(r"(\.\d*?)0+$", r"\1", x)) if "." in x else x  # 42,30 → 42.3
+            for x in re.findall(r"\d+(?:\.\d+)?", s))
+    out |= {x for x in nums if not re.fullmatch(r"\d", x)}
+    return out
+
+
+def fact_detail_warnings(p: Path, c: dict, sources: dict) -> list[str]:
+    """T08: факт точнее источника (числа и даты, которых нет ни в цитате, ни в снимке) и дата источника не со страницы."""
+    if c.get("kind") != "fact":
+        return []
+    srcs = [sources[s] for s in c.get("sources", []) if s in sources and sources[s].get("type") != "synthetic"]
+    out = []
+    hay = set()
+    for s in srcs:
+        hay |= numbers_in(s.get("quote") or "")
+        f = resolve_path(p, s.get("snapshot") or s.get("path"))
+        if f and f.suffix.lower() in TEXT_EXT:
+            hay |= numbers_in(f.read_text(encoding="utf-8", errors="ignore"))
+        elif s.get("snapshot") or s.get("path"):  # PDF, картинка — код не прочитает, сверяет verifier
+            return out
+    miss = sorted(numbers_in(c.get("text") or "") - hay, key=lambda x: float(x.lstrip("d").split(".")[0]))
+    miss = [x[1:] if x.startswith("d") else x for x in miss]  # d28.2 → 28.2 (день.месяц)
+    if srcs and miss:
+        out.append(f"{c['id']}: в тексте есть числа, которых нет ни в цитате, ни в снимке источника: {', '.join(miss)} — "
+                   "убери, укажи источник с ними или вынеси в hypothesis")
+    dated = [s for s in srcs if s.get("published")]
+    if dated and all(s.get("published_from") in WEAK_SNAPSHOTS for s in dated):
+        out.append(f"{c['id']}: дата источника не подтверждена страницей "
+                   f"({', '.join(s['id'] + ': ' + s['published_from'] for s in dated)}) — если вывод зависит от свежести, "
+                   "сверь дату на странице")
+    return out
 
 
 def cmd_claim(a):
@@ -580,6 +649,8 @@ def cmd_claim(a):
         rows.append(row)
         write_jsonl(p / "claims.jsonl", rows)
         if w := weak_fact_warning(row, sources):
+            print(f"⚠ {w}")
+        for w in fact_detail_warnings(p, row, sources):
             print(f"⚠ {w}")
         journal(p, f"утверждение {cid} [{a.kind}]: {a.text[:120]}", "claim")
         print(f"✓ {cid}")
@@ -777,6 +848,7 @@ def cmd_check(a):
                                 f"({', '.join(s['id'] for s in srcs)}) — проверить его потом будет нельзя")
         if w := weak_fact_warning(c, sources):
             warnings.append(w)
+        warnings += fact_detail_warnings(p, c, sources)
     refs = doc_refs(p)
     for ref, docs in refs.items():
         if ref.startswith("S") and ref not in sources:
@@ -1767,6 +1839,9 @@ def main(argv=None):
     s.add_argument("--quote"); s.add_argument("--snapshot"); s.add_argument("--reliability", choices=["high", "medium", "low"])
     s.add_argument("--snapshot-kind", dest="snapshot_kind", choices=list(SNAPSHOT_KINDS),
                    help="вид снимка (обязателен со --snapshot): " + "; ".join(f"{k} — {v}" for k, v in SNAPSHOT_KINDS.items()))
+    s.add_argument("--date-from", dest="date_from", choices=list(DATE_FROM),
+                   help="откуда дата публикации (обязательно при --date со снимком summary/search): "
+                        + "; ".join(f"{k} — {v}" for k, v in DATE_FROM.items()))
     s.add_argument("--note"); s.set_defaults(f=cmd_source)
 
     s = sp.add_parser("claim", help="утверждения: add|list|retract|supersede")
