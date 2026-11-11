@@ -360,6 +360,7 @@ def cmd_q(a):
         elif a.action == "done":
             q["status"] = "done"
             q["answer_claims"] = split_ids(a.claims) or q.get("answer_claims", [])
+            q.pop("error", None)  # прошлый сбой остаётся в журнале; у выполненного вопроса ошибки нет (T06)
         elif a.action == "fail":
             q["status"], q["error"] = "failed", a.text or "без описания"
         q["updated_at"] = now()

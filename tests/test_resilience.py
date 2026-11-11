@@ -119,6 +119,21 @@ class ResilienceTest(unittest.TestCase):
         self.hook("session-end", "A")
         self.assertEqual(self.cost("demo", "A")["messages"], 1)
 
+    def test_retried_question_done_drops_stale_error(self):
+        # T06 вживую: Q01 упал (404), повтор с другим источником — done, а в plan.json висела старая ошибка
+        self.ok("new", "demo", "--title", "Демо")
+        self.ok("q", "add", "--text", "Вопрос")
+        self.ok("q", "start", "Q01")
+        self.ok("q", "fail", "Q01", "--text", "404")
+        self.ok("q", "start", "Q01")
+        self.ok("q", "done", "Q01", "--claims", "C001")
+        plan = json.loads((self.tmp / "projects" / "demo" / "plan.json").read_text(encoding="utf-8"))
+        q = plan["questions"][0]
+        self.assertEqual((q["status"], q["attempts"]), ("done", 2))
+        self.assertNotIn("error", q)
+        journal = (self.tmp / "projects" / "demo" / "journal.md").read_text(encoding="utf-8")
+        self.assertIn("Q01 → failed: 404", journal)  # история сбоя не теряется
+
 
 if __name__ == "__main__":
     unittest.main()
