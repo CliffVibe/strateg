@@ -848,10 +848,66 @@ def attribute_messages(msgs: dict) -> dict[str, dict]:
     return out
 
 
+def dev_mode() -> bool:
+    """Сессия разработки самого агента (запущена с STRAT_DEV=1): не пишет в данные проекта."""
+    return os.environ.get("STRAT_DEV") == "1"
+
+
+AGENT_DIRS = {"scripts", "tests", ".claude", "knowledge", "templates", "config"}
+AGENT_FILES = {"AGENTS.md", "CLAUDE.md"}
+
+
+def agent_file(fp: str) -> str | None:
+    """Путь — файл самого агента (код, тесты, правила, методология)? Возвращает путь от корня репозитория."""
+    try:
+        rel = Path(fp).resolve().relative_to(ROOT.resolve())
+    except (ValueError, OSError):
+        return None
+    parts = rel.parts
+    if parts and (parts[0] in AGENT_DIRS or (len(parts) == 1 and parts[0] in AGENT_FILES)):
+        return rel.as_posix()
+    return None
+
+
+def dev_session_reason(transcript: Path) -> str | None:
+    """Почему сессия — разработка агента, а не работа над проектом (None — работа над проектом).
+    T03: сессии разработки T01 и T03 списались на активный проект (+$5,7), бюджет-стоп заблокировал T04–T06."""
+    if dev_mode():
+        return "STRAT_DEV=1"
+    files = [transcript]
+    sub = transcript.with_suffix("") / "subagents"
+    if sub.is_dir():
+        files += sorted(sub.glob("*.jsonl"))
+    for f in files:
+        for line in f.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if '"tool_use"' not in line:
+                continue
+            try:
+                m = json.loads(line).get("message")
+            except json.JSONDecodeError:
+                continue
+            for b in (m.get("content") if isinstance(m, dict) else None) or []:
+                if isinstance(b, dict) and b.get("type") == "tool_use" and \
+                        b.get("name") in ("Write", "Edit", "MultiEdit", "NotebookEdit"):
+                    inp = b.get("input") or {}
+                    if rel := agent_file(str(inp.get("file_path") or inp.get("notebook_path") or "")):
+                        return f"правка файла агента {rel}"
+    return None
+
+
 def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
-    """Стоимость сессии по проектам; файл каждой сессии перезаписывается целиком → без удвоения."""
+    """Стоимость сессии по проектам; файл каждой сессии перезаписывается целиком → без удвоения.
+    Сессия разработки агента на проекты не списывается: файл сессии остаётся с usd 0 и причиной
+    (в т.ч. задним числом — если файл агента правили уже после первых ходов)."""
     res = {}
-    for slug, msgs in attribute_messages(transcript_usage(transcript)).items():
+    msgs_by_slug = attribute_messages(transcript_usage(transcript))
+    if reason := dev_session_reason(transcript):
+        for slug in sorted(set(msgs_by_slug) | {d.parent.parent.name for d in PROJECTS.glob(f"*/costs/{session_id}.json")}):
+            write_json(PROJECTS / slug / "costs" / f"{session_id}.json",
+                       {"usd": 0.0, "messages": 0, "excluded": f"сессия разработки агента: {reason}",
+                        "session_id": session_id, "updated_at": now(), "transcript": str(transcript)})
+        return res
+    for slug, msgs in msgs_by_slug.items():
         tot = usage_cost(msgs, load_pricing())
         tot.update(session_id=session_id, updated_at=now(), transcript=str(transcript))
         write_json(PROJECTS / slug / "costs" / f"{session_id}.json", tot)
@@ -896,6 +952,9 @@ def cost_totals(p: Path) -> dict:
     agg = {"usd": 0.0, "sessions": 0, "by_model": {}, "by_role": {}, "web_searches": 0, "web_fetches": 0}
     for f in sorted((p / "costs").glob("*.json")):
         d = read_json(f, {})
+        if d.get("excluded"):  # сессия разработки агента — не стоимость проекта
+            agg["excluded_sessions"] = agg.get("excluded_sessions", 0) + 1
+            continue
         agg["usd"] += d.get("usd", 0)
         agg["web_searches"] += d.get("web_searches", 0)
         agg["web_fetches"] += d.get("web_fetches", 0)
@@ -948,6 +1007,8 @@ def cmd_cost(a):
         print(f"  {m:28} ${v:.4f}")
     if line := role_line(agg):
         print(f"  {line}")
+    if agg.get("excluded_sessions"):
+        print(f"  сессий разработки агента не списано на проект: {agg['excluded_sessions']}")
     pr = load_pricing()
     print(f"Цены: {pr.get('source', '?')} (на {pr.get('as_of', '?')}). На подписке это оценка в ценах API.")
 
@@ -1072,7 +1133,7 @@ def how_markdown(p: Path) -> str:
     for _, k, _ in jr:
         kinds[k] = kinds.get(k, 0) + 1
     cost = cost_totals(p)
-    sessions = [read_json(f, {}) for f in sorted((p / "costs").glob("*.json"))]
+    sessions = [s for s in (read_json(f, {}) for f in sorted((p / "costs").glob("*.json"))) if not s.get("excluded")]
     by_model_msgs: dict[str, int] = {}
     for s in sessions:
         for m, v in s.get("by_model", {}).items():
@@ -1449,6 +1510,14 @@ def hook_stop(d):
         print(json.dumps({"systemMessage": f"Потрачено ${tot:.2f} из ${budget} (>80% бюджета)."}, ensure_ascii=False))
 
 
+def is_dev_session(d) -> bool:
+    """Хук вызван из сессии разработки агента: STRAT_DEV=1 или в сессии правили файлы агента."""
+    if dev_mode():
+        return True
+    tp = main_transcript(d)
+    return bool(tp and dev_session_reason(tp))
+
+
 def budget_block_reason(d) -> str | None:
     """Бюджет — не предупреждение задним числом: при превышении дорогие действия блокируются до решения человека."""
     if d.get("tool_name") not in BUDGET_TOOLS:
@@ -1460,6 +1529,8 @@ def budget_block_reason(d) -> str | None:
     tp = main_transcript(d)
     if tp:  # пересчитать на лету: Stop-хук обновляет стоимость только в конце хода
         record_session_costs(tp, d.get("session_id") or tp.stem)
+    if is_dev_session(d):  # бюджет — проекта; разработку агента он не останавливает и в журнал проекта не пишет
+        return None
     tot, budget = budget_state(p)
     if not budget or tot <= budget:
         return None

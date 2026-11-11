@@ -387,6 +387,45 @@ class StratTest(unittest.TestCase):
         self.assertEqual((demo["messages"], demo["output"]), (1, 1000))
         self.assertEqual((other["messages"], other["output"]), (1, 2000))
 
+    def _dev_edit_line(self, rel="scripts/strat.py", ts="2099-01-01T00:00:01Z"):
+        u = {"input_tokens": 0, "output_tokens": 500000, "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+        return json.dumps({"type": "assistant", "timestamp": ts, "message": {
+            "id": "m-dev", "model": "claude-sonnet-5-5", "usage": u,
+            "content": [{"type": "tool_use", "id": "t-dev", "name": "Edit",
+                         "input": {"file_path": str(self.tmp / rel), "old_string": "a", "new_string": "b"}}]}})
+
+    def test_dev_session_cost_is_not_charged_to_project(self):
+        # T03: сессии разработки T01 и T03 списались на активный проект ($9,6 → $16,1), бюджет-стоп заблокировал T04–T06
+        t = self._transcript_ts([("m1", "2099-01-01T00:00:00Z", 1_000_000)])  # $10 при бюджете $5
+        hook = json.dumps({"transcript_path": str(t), "session_id": "dev1"})
+        self.ok("hook", "stop", stdin=hook)
+        self.assertIn("$10.0", self.ok("cost"))  # пока похоже на работу над проектом — списано
+        with t.open("a", encoding="utf-8") as f:  # в той же сессии правят код агента → задним числом не списываем
+            f.write(self._dev_edit_line() + "\n")
+        self.ok("hook", "stop", stdin=hook)
+        d = json.loads((self.p / "costs" / "dev1.json").read_text(encoding="utf-8"))
+        self.assertEqual(d["usd"], 0.0)
+        self.assertIn("scripts/strat.py", d["excluded"])
+        out = self.ok("cost")
+        self.assertIn("Всего: $0.0000 за 0 сесс.", out)
+        self.assertIn("не списано на проект: 1", out)
+        # бюджет проекта сессию разработки не останавливает
+        web = {"tool_name": "WebSearch", "tool_input": {"query": "x"}, "transcript_path": str(t), "session_id": "dev1"}
+        self.ok("hook", "protect", stdin=json.dumps(web))
+        # правка файлов проекта (work/) — это работа над проектом, она списывается
+        t2 = self._transcript_ts([("m2", "2099-01-01T00:00:00Z", 1000)])
+        with t2.open("a", encoding="utf-8") as f:
+            f.write(self._dev_edit_line(rel="projects/demo/work/options.md").replace("m-dev", "m3") + "\n")
+        self.ok("hook", "stop", stdin=json.dumps({"transcript_path": str(t2), "session_id": "proj1"}))
+        self.assertNotIn("excluded", json.loads((self.p / "costs" / "proj1.json").read_text(encoding="utf-8")))
+        # STRAT_DEV=1 — сессия разработки по определению
+        t3 = self._transcript_ts([("m4", "2099-01-01T00:00:00Z", 1000)])
+        r = subprocess.run([sys.executable, str(STRAT), "hook", "stop"], env={**self.env, "STRAT_DEV": "1"},
+                           input=json.dumps({"transcript_path": str(t3), "session_id": "dev2"}),
+                           capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("STRAT_DEV=1", json.loads((self.p / "costs" / "dev2.json").read_text(encoding="utf-8"))["excluded"])
+
     def test_budget_blocks_expensive_tools_until_human_raises_it(self):
         t = self._transcript_ts([("m1", "2099-01-01T00:00:00Z", 1_000_000)])  # $10 на sonnet при бюджете $5
         web = json.dumps({"tool_name": "WebSearch", "tool_input": {"query": "x"}, "transcript_path": str(t), "session_id": "s1"})
