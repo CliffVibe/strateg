@@ -491,7 +491,25 @@ def cmd_source(a):
     rows = read_jsonl(p / "sources.jsonl")
     if a.action == "list":
         for r in rows:
-            print(f"{r['id']} [{r['type']}] {r['title']} — {r.get('url') or r.get('path') or ''}")
+            st = f" ({r['status']})" if r.get("status", "active") != "active" else ""
+            print(f"{r['id']} [{r['type']}]{st} {r['title']} — {r.get('url') or r.get('path') or ''}")
+        return
+    if a.action == "retract":
+        # T09: снимок источника испорчен (перезаписан) — источник нельзя ни исправить (снимки неизменяемы), ни удалить
+        # (реестр — история). Отзыв: check больше не проверяет его снимок, но ловит действующие утверждения на нём.
+        r = next((x for x in rows if x["id"] == a.id), None)
+        if not r:
+            die(f"Нет источника {a.id}")
+        if not a.reason:
+            die("Нужна причина: --reason \"…\"")
+        users = [c["id"] for c in read_jsonl(p / "claims.jsonl") if c["status"] == "active" and a.id in c.get("sources", [])]
+        r.update(status="retracted", reason=a.reason, changed_at=now())
+        write_jsonl(p / "sources.jsonl", rows)
+        journal(p, f"источник {a.id} отозван: {a.reason}", "revision")
+        print(f"✓ {a.id}: отозван")
+        if users:
+            print(f"⚠ На нём держатся действующие утверждения: {', '.join(users)} — замени источник или "
+                  "claim retract/supersede (strat check покажет)")
         return
     if a.type not in SOURCE_TYPES:
         die(f"--type: {', '.join(SOURCE_TYPES)}")
@@ -507,6 +525,12 @@ def cmd_source(a):
             die("Укажи вид снимка --snapshot-kind: " + "; ".join(f"{k} — {v}" for k, v in SNAPSHOT_KINDS.items()))
         digest = sha256_file(sp)
         snap = str(sp)
+        same = [r for r in rows if r.get("snapshot") and r.get("sha256") != digest
+                and resolve_path(p, r["snapshot"]) and resolve_path(p, r["snapshot"]).resolve() == sp.resolve()]
+        if same:  # T09: параллельные researcher писали снимки с одинаковым именем — второй затирал первый
+            die(f"Файл {sp.name} уже снимок {', '.join(r['id'] for r in same)} с другим содержимым — его перезаписали. "
+                "Сохрани страницу в новый файл с уникальным именем (<домен>-<Qxx>-<ЧЧММСС>.md), а испорченный источник "
+                "отзови: strat source retract S… --reason \"…\"")
     if a.date and a.type == "web" and a.snapshot_kind in WEAK_SNAPSHOTS and not a.date_from:
         die("Откуда дата публикации? При снимке-пересказе или выдаче поиска дата могла прийти не со страницы. "
             "--date-from " + " | ".join(f"{k} ({v})" for k, v in DATE_FROM.items()) +
@@ -822,9 +846,14 @@ def cmd_check(a):
     claims_all = read_jsonl(p / "claims.jsonl")
     claims = {c["id"]: c for c in claims_all}
     active = [c for c in claims_all if c["status"] == "active"]
+    retracted = {sid for sid, s in sources.items() if s.get("status") == "retracted"}
     for c in active:
+        if bad := [s for s in c.get("sources", []) if s in retracted]:
+            problems.append(f"{c['id']}: опирается на отозванный источник {', '.join(bad)} — замени источник или "
+                            "claim retract/supersede")
         if c["kind"] == "fact":
-            real = [s for s in c.get("sources", []) if s in sources and sources[s]["type"] != "synthetic"]
+            real = [s for s in c.get("sources", []) if s in sources and sources[s]["type"] != "synthetic"
+                    and s not in retracted]
             if not real:
                 problems.append(f"{c['id']}: факт без несинтетического источника")
         for d in c.get("depends_on", []):
@@ -833,6 +862,8 @@ def cmd_check(a):
     st0 = read_json(p / "state.json", {})
     allowed = st0.get("allowed_sources", [])
     for s in sources.values():
+        if s["id"] in retracted:  # отозван: снимок не проверяем, утверждения на нём ловим выше
+            continue
         pr, wr = source_problems(p, s)
         problems += pr
         warnings += wr
@@ -1039,6 +1070,12 @@ def dev_session_reason(transcript: Path) -> str | None:
     return None
 
 
+def home_tilde(p) -> str:
+    """Ссылка на транскрипт для файлов, которые попадают в репозиторий (costs/ демо-проекта). Полный путь содержит
+    имя пользователя ОС дважды — в домашней папке и в имени папки проекта Claude Code (T09) — поэтому только имя файла."""
+    return Path(p).name
+
+
 def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
     """Стоимость сессии по проектам; файл каждой сессии перезаписывается целиком → без удвоения.
     Сессия разработки агента на проекты не списывается: файл сессии остаётся с usd 0 и причиной
@@ -1049,11 +1086,11 @@ def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
         for slug in sorted(set(msgs_by_slug) | {d.parent.parent.name for d in PROJECTS.glob(f"*/costs/{session_id}.json")}):
             write_json(PROJECTS / slug / "costs" / f"{session_id}.json",
                        {"usd": 0.0, "messages": 0, "excluded": f"сессия разработки агента: {reason}",
-                        "session_id": session_id, "updated_at": now(), "transcript": str(transcript)})
+                        "session_id": session_id, "updated_at": now(), "transcript": home_tilde(transcript)})
         return res
     for slug, msgs in msgs_by_slug.items():
         tot = usage_cost(msgs, load_pricing())
-        tot.update(session_id=session_id, updated_at=now(), transcript=str(transcript))
+        tot.update(session_id=session_id, updated_at=now(), transcript=home_tilde(transcript))
         write_json(PROJECTS / slug / "costs" / f"{session_id}.json", tot)
         res[slug] = tot
     return res
@@ -1119,7 +1156,7 @@ def cost_totals(p: Path) -> dict:
 def record_session_cost(p: Path, transcript: Path, session_id: str):
     msgs = transcript_usage(transcript)
     tot = usage_cost(msgs, load_pricing())
-    tot.update(session_id=session_id, updated_at=now(), transcript=str(transcript))
+    tot.update(session_id=session_id, updated_at=now(), transcript=home_tilde(transcript))
     # перезапись файла сессии целиком → повторный вызов хука не удваивает стоимость
     write_json(p / "costs" / f"{session_id}.json", tot)
     return tot
@@ -1525,12 +1562,54 @@ SHELL_COPY = {"cp", "copy", "copy-item", "cpi", "install", "rsync", "scp"}
 SHELL_INPLACE = {"sed", "perl"}  # меняют файл только с -i
 
 
-def shell_write_reason(cmd: str) -> str | None:
+def os_path(p: str) -> Path:
+    """Путь из команды shell → путь ОС. Git Bash на Windows пишет /c/Users/… — это C:/Users/…"""
+    p = p.strip().strip("'\"")
+    if os.name == "nt" and (m := re.match(r"^/([a-zA-Z])(/|$)", p)):
+        p = f"{m.group(1).upper()}:/" + p[3:]
+    return Path(p).expanduser()
+
+
+def is_snapshot_path(p: str) -> bool:
+    return bool(re.search(r"(^|/)projects/[^/]+/snapshots/[^/]+$", p.replace("\\", "/")))
+
+
+def shell_target_reason(target: str, cur: Path, create_ok: bool = False) -> str | None:
+    """Защищён ли адресат записи из shell. Относительный путь — от текущей папки команды (с учётом `cd`):
+    T09 — исследователи писали `cd …/snapshots && cat > rustore-…md`, хук видел только «rustore-…md» и
+    пропустил перезапись чужого снимка. create_ok: `>` в НОВЫЙ файл snapshots/ разрешён (снимок пишется один раз)."""
+    t = target.strip().strip("'\"")
+    if not t or t.startswith("$") or t in ("/dev/null", "nul", "$null"):
+        return None
+    p = os_path(t)
+    full = p if p.is_absolute() else cur / p
+    if create_ok and is_snapshot_path(str(full)) and not full.exists():
+        return None
+    if is_snapshot_path(str(full)) and full.exists():
+        return ("Снимок уже есть — снимок пишется один раз. Сохрани страницу в НОВЫЙ файл с уникальным именем "
+                "(<домен>-<Qxx>-<ЧЧММСС>.md): параллельные researcher перезаписывали снимки друг друга (T09).")
+    return protected_reason(t) or protected_reason(str(full).replace("\\", "/"))
+
+
+def shell_write_reason(cmd: str, cwd: str | None = None) -> str | None:
     """Эвристика: пишет ли команда shell в защищённые файлы. Не песочница — защищает от случайного или
-    «подсказанного» обхода; надёжная граница — права ОС и ревью."""
-    for m in re.finditer(r"(?<![0-9&<-])>>?\s*(\"[^\"]+\"|'[^']+'|[^\s;|&)]+)", cmd):  # > файл, >> файл
-        if r := protected_reason(m.group(1)):
-            return r
+    «подсказанного» обхода; надёжная граница — права ОС и ревью. Сегменты идут по порядку: `cd` меняет папку."""
+    cur = os_path(cwd) if cwd else Path.cwd()
+    for seg in re.split(r"&&|\|\||[;\n]", strip_heredocs(cmd)):
+        try:
+            head = [t.strip("'\"") for t in shlex.split(seg, posix=False)]
+        except ValueError:
+            head = seg.split()
+        if head and head[0].lower() in ("cd", "pushd", "set-location", "sl", "chdir"):
+            dest = next((a for a in head[1:] if not a.startswith("-")), None)
+            if dest:
+                d = os_path(dest)
+                cur = d if d.is_absolute() else cur / d
+            continue
+        for m in re.finditer(r"(?<![0-9&<-])(>>?)\s*(\"[^\"]+\"|'[^']+'|[^\s;|&)]+)", seg):  # > файл, >> файл
+            if r := shell_target_reason(m.group(2), cur, create_ok=m.group(1) == ">"):
+                return r
+    cur = os_path(cwd) if cwd else Path.cwd()
     for seg in re.split(r"&&|\|\||[;|\n]", cmd):
         try:
             toks = [t.strip("'\"") for t in shlex.split(seg, posix=False)]
@@ -1542,6 +1621,11 @@ def shell_write_reason(cmd: str) -> str | None:
             continue
         verb = re.split(r"[/\\]", toks[0])[-1].lower().removesuffix(".exe")
         args = toks[1:]
+        if verb in ("cd", "pushd", "set-location", "sl", "chdir"):
+            if dest := next((a for a in args if not a.startswith("-")), None):
+                d = os_path(dest)
+                cur = d if d.is_absolute() else cur / d
+            continue
         if verb in ("python", "python3", "py") and len(args) >= 1 and args[0].replace("\\", "/").endswith("scripts/strat.py"):
             continue  # CLI агента сам соблюдает правила реестров
         targets: list[str] = []
@@ -1554,7 +1638,7 @@ def shell_write_reason(cmd: str) -> str | None:
         elif re.search(r"write_text|write_bytes|open\([^)]*['\"][wa]b?\+?['\"]", seg):  # python -c "...open(p,'w')"
             targets = re.findall(r"[\w.:/\\-]+", seg)  # пути внутри кода — не отдельные аргументы
         for t in targets:
-            if r := protected_reason(t):
+            if r := shell_target_reason(t, cur):
                 return r
     return None
 
@@ -1688,7 +1772,7 @@ def hook_protect(d):
             block("Чтение .env запрещено.")
         if re.search(r"rm\s+-rf?\s", cmd) or re.search(r"remove-item\b[^|;&]*-recurse", cmd, flags=re.I):
             block("Удаление файлов — только человек.")
-        if r := shell_write_reason(cmd):
+        if r := shell_write_reason(cmd, ti.get("cwd") or d.get("cwd")):
             block(r + " Обход через shell запрещён: используй scripts/strat.py или спроси человека.")
 
 
@@ -1834,7 +1918,8 @@ def main(argv=None):
     s.set_defaults(f=cmd_input)
 
     s = sp.add_parser("source", help="источники: add|list")
-    s.add_argument("action", choices=["add", "list"]); s.add_argument("--type"); s.add_argument("--title")
+    s.add_argument("action", choices=["add", "list", "retract"]); s.add_argument("id", nargs="?")
+    s.add_argument("--reason", help="retract: почему источник отозван"); s.add_argument("--type"); s.add_argument("--title")
     s.add_argument("--url"); s.add_argument("--path"); s.add_argument("--publisher"); s.add_argument("--date")
     s.add_argument("--quote"); s.add_argument("--snapshot"); s.add_argument("--reliability", choices=["high", "medium", "low"])
     s.add_argument("--snapshot-kind", dest="snapshot_kind", choices=list(SNAPSHOT_KINDS),

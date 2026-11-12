@@ -234,6 +234,7 @@ class StratTest(unittest.TestCase):
         d = json.loads((self.p / "costs" / "s1.json").read_text(encoding="utf-8"))
         expected = (1000 * 2.0 + 1000 * 10.0) / 1e6 + 10.0 / 1000
         self.assertEqual(d["messages"], 1)
+        self.assertEqual(d["transcript"], t.name)  # T09: costs/ демо в репозитории — без пути с именем пользователя
         self.assertAlmostEqual(d["usd"], expected, places=6)
         self.assertIn("0.022", self.ok("cost"))
 
@@ -328,6 +329,47 @@ class StratTest(unittest.TestCase):
         snap.write_text("снимок", encoding="utf-8")
         self.fails("hook", "protect", code=2, stdin=hook)  # перезаписать — нельзя
         self.fails("hook", "protect", code=2, stdin=json.dumps({"tool_name": "Edit", "tool_input": {"file_path": str(snap)}}))
+
+    def test_shell_snapshot_write_once_after_cd(self):
+        # T09: researcher писали `cd …/snapshots && cat > rustore-…md <<'EOF'` — хук видел только имя файла и пропустил
+        # перезапись чужого снимка; три источника потеряли снимки
+        snaps = self.p / "snapshots"
+        (snaps / "old.md").write_text("снимок первого researcher", encoding="utf-8")
+        d = str(snaps)
+        if os.name == "nt":  # Git Bash пишет /c/Users/…
+            d = "/" + d[0].lower() + d[2:].replace("\\", "/")
+        heredoc = "cat > {f} <<'EOF'\nURL: https://x.ru\nтекст\nEOF"
+        blocked = [f"cd {d} && " + heredoc.format(f="old.md"), f"cd {d}\necho x >> new.md",
+                   f"cd {d} && tee old.md < x", f"cd {self.p} && echo x > inputs/a.md",
+                   f"cd {self.p} && echo x >> claims.jsonl"]
+        for cmd in blocked:
+            self.assertEqual(self._protect("Bash", cmd), 2, f"должно блокироваться: {cmd}")
+        r = self.run_cli("hook", "protect", stdin=json.dumps({"tool_name": "Bash", "tool_input": {
+            "command": heredoc.format(f="old.md")}, "cwd": str(snaps)}))  # папка — из входа хука
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("пишется один раз", r.stderr)
+        allowed = [f"cd {d} && " + heredoc.format(f="new-Q01-221030.md"), f"cd {d} && cat old.md",
+                   f"cd {self.p} && echo x > work/notes.md"]
+        for cmd in allowed:
+            self.assertEqual(self._protect("Bash", cmd), 0, f"не должно блокироваться: {cmd}")
+
+    def test_source_add_refuses_overwritten_snapshot_and_retract(self):
+        snap = self._snap("Рейтинг: 3,2 на основе 29,5 тыс. оценок.")
+        web = ["source", "add", "--type", "web", "--snapshot", snap, "--snapshot-kind", "page"]
+        self.ok(*web, "--title", "A", "--url", "https://a.ru/1", "--quote", "Рейтинг: 3,2")                    # S001
+        self.ok("claim", "add", "--kind", "fact", "--text", "Рейтинг 3,2", "--sources", "S001")                 # C001
+        Path(snap).write_text("# Другая страница\nЗагрузок: 19 млн +\n", encoding="utf-8")  # второй researcher затёр
+        out = self.fails(*web, "--title", "B", "--url", "https://b.ru/1", "--quote", "19 млн")
+        self.assertIn("уже снимок S001 с другим содержимым", out)
+        self.assertIn("снимок изменён", self.fails("check"))
+        self.assertIn("C001", self.ok("source", "retract", "S001", "--reason", "снимок перезаписан"))  # предупреждение
+        out = self.fails("check")
+        self.assertNotIn("снимок изменён", out)
+        self.assertIn("C001: опирается на отозванный источник S001", out)
+        self.ok("claim", "retract", "C001", "--reason", "источник отозван")
+        self.ok("check")
+        self.assertIn("(retracted)", self.ok("source", "list"))
+        self.assertIn("отозван", (self.p / "journal.md").read_text(encoding="utf-8"))
 
     def test_input_add_copies_without_overwrite(self):
         src = self.tmp / "survey.csv"
