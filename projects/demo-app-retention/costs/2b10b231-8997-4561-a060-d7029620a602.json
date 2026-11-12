@@ -1,0 +1,26 @@
+{
+  "usd": 0.18772860000000002,
+  "input": 16,
+  "output": 2899,
+  "cache_write": 3774,
+  "cache_read": 497463,
+  "web_searches": 0,
+  "web_fetches": 0,
+  "messages": 6,
+  "by_model": {
+    "claude-opus-5-5": {
+      "usd": 0.18772860000000002,
+      "messages": 6
+    }
+  },
+  "unpriced_models": [],
+  "by_role": {
+    "main": {
+      "usd": 0.18772860000000002,
+      "messages": 6
+    }
+  },
+  "session_id": "2b10b231-8997-4561-a060-d7029620a602",
+  "updated_at": "2026-11-12T22:06:28+03:00",
+  "transcript": "2b10b231-8997-4561-a060-d7029620a602.jsonl"
+}
