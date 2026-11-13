@@ -96,6 +96,24 @@ class ResilienceTest(unittest.TestCase):
         self.hook("stop", "old")
         self.assertEqual(self.cost("sandbox", "old")["messages"], 1)
 
+    def test_prelude_before_new_project_goes_to_new_project(self):
+        # T10, задача 2: сессия закрепила проект папки (demo) при старте, затем /start создал новый — первые ответы
+        # ($1,42) ушли в чужой проект
+        self.ok("new", "demo", "--title", "Демо")
+        self.ok("new", "esim", "--title", "eSIM")
+        self.activity({"at": "2026-01-01T00:00:00+00:00", "slug": "demo", "session": "C", "how": "pin"},
+                      {"at": "2026-01-01T00:01:00+00:00", "slug": "esim", "session": "C", "how": "new"})
+        self.transcript("C", [("c1", "2026-01-01T00:00:30Z", 1000), ("c2", "2026-01-01T00:02:00Z", 1000)])
+        self.hook("stop", "C")
+        self.assertEqual(self.cost("esim", "C")["messages"], 2)
+        self.assertIsNone(self.cost("demo", "C"))
+        # закреплённый проект, в котором сессия продолжила работу (use), остаётся за ним
+        self.activity({"at": "2026-02-01T00:00:00+00:00", "slug": "demo", "session": "D", "how": "pin"},
+                      {"at": "2026-02-01T00:05:00+00:00", "slug": "esim", "session": "D", "how": "use"})
+        self.transcript("D", [("d1", "2026-02-01T00:01:00Z", 1000)])
+        self.hook("stop", "D")
+        self.assertEqual(self.cost("demo", "D")["messages"], 1)
+
     # ── обрыв хода ──
     def test_interrupted_turn_is_costed_at_next_session_start(self):
         # Stop-хук не вызывается, если ход прерван (Ctrl+C, «Стоп») или окно закрыто: последний ход терялся

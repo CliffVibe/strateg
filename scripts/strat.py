@@ -177,7 +177,7 @@ def session_pin() -> Path | None:
     return SESSIONS / SESSION if SESSION and re.fullmatch(r"[\w\-]{1,100}", SESSION) else None
 
 
-def set_active(slug: str, folder: bool = True):
+def set_active(slug: str, folder: bool = True, how: str = "use"):
     """Сделать проект активным для этой сессии и (folder) проектом папки по умолчанию — для новых сессий."""
     pin = session_pin()
     changed = active_slug(required=False) != slug or bool(pin and not pin.exists())
@@ -187,7 +187,7 @@ def set_active(slug: str, folder: bool = True):
         pin.parent.mkdir(parents=True, exist_ok=True)
         pin.write_text(slug, encoding="utf-8")
     if changed:
-        log_activation(slug)
+        log_activation(slug, how)
 
 
 def active_slug(required: bool = True) -> str | None:
@@ -240,7 +240,7 @@ def cmd_new(a):
     write_json(p / "plan.json", {"questions": []})
     (p / "journal.md").write_text(f"# Журнал проекта «{a.title or slug}»\n\n", encoding="utf-8")
     journal(p, "проект создан", "system")
-    set_active(slug)
+    set_active(slug, how="new")
     print(f"✓ Проект {slug} создан и сделан активным: {p.relative_to(ROOT)}")
 
 
@@ -662,7 +662,9 @@ def weak_fact_warning(c: dict, sources: dict) -> str | None:
 
 
 MONTHS = ["январ", "феврал", "март", "апрел", "ма", "июн", "июл", "август", "сентябр", "октябр", "ноябр", "декабр"]
-MONTH_RE = re.compile(r"\b(\d{1,2})\s+(" + "|".join(m + r"[а-я]*" for m in MONTHS) + r")", re.I)
+# «ма» — только «мая»/«май»: иначе «5 магазинов» принималось за дату, и claim add падал (StopIteration; T10, задача 2)
+MONTH_RE = re.compile(r"\b(\d{1,2})\s+(" + "|".join(r"ма[йя]\b" if m == "ма" else m + r"[а-я]*" for m in MONTHS)
+                      + r")", re.I)
 
 
 def numbers_in(s: str) -> set[str]:
@@ -674,8 +676,10 @@ def numbers_in(s: str) -> set[str]:
     out = set()
     for m in MONTH_RE.finditer(s):
         word = m.group(2).lower()
-        k = next(i for i, p in enumerate(MONTHS) if word.startswith(p) and (p != "ма" or word.startswith(("мая", "май"))))
-        out.add(f"d{int(m.group(1))}.{k + 1}")
+        k = next((i for i, p in enumerate(MONTHS) if word.startswith(p) and (p != "ма" or word.startswith(("мая", "май")))),
+                 None)
+        if k is not None:
+            out.add(f"d{int(m.group(1))}.{k + 1}")
     s = MONTH_RE.sub(" ", s)
 
     def date(m):
@@ -768,7 +772,26 @@ def cmd_claim(a):
         if not any(x["id"] == a.by_id for x in rows):
             die(f"Нет утверждения {a.by_id}")
         c.update(status="superseded", superseded_by=a.by_id, reason=a.reason, changed_at=now())
+        if a.rewire:
+            # T10, задача 2: после замены допущения ~10 зависимых прогнозов перерегистрировали вручную. --rewire
+            # переподвешивает их на новое утверждение; пересчитать числа в их тексте — по-прежнему работа агента
+            moved = []
+            for x in rows:
+                if x["status"] == "active" and a.id in x.get("depends_on", []):
+                    x["depends_on"] = [a.by_id if d == a.id else d for d in x["depends_on"]]
+                    moved.append(x["id"])
+            if moved:
+                journal(p, f"зависимости {', '.join(moved)}: {a.id} → {a.by_id} (--rewire; тексты проверить)", "revision")
+                print(f"✓ Переподвешены на {a.by_id}: {', '.join(moved)} — проверь, не изменились ли их числа и выводы")
     write_jsonl(p / "claims.jsonl", rows)
+    if a.action == "supersede":  # ответы на вопросы исследования — на замену (T10, задача 2: ссылки на старые ID)
+        plan = read_json(p / "plan.json", {"questions": []})
+        hit = [q["id"] for q in plan.get("questions", []) if a.id in q.get("answer_claims", [])]
+        for q in plan.get("questions", []):
+            q["answer_claims"] = list(dict.fromkeys(a.by_id if x == a.id else x for x in q.get("answer_claims", [])))
+        if hit:
+            write_json(p / "plan.json", plan)
+            print(f"✓ Ответы {', '.join(hit)}: {a.id} → {a.by_id}")
     journal(p, f"{a.id} → {c['status']}: {a.reason or ''}", "revision")
     print(f"✓ {a.id}: {c['status']}")
     affected = impact_of(p, [a.id])
@@ -926,6 +949,12 @@ def cmd_check(a):
     claims_all = read_jsonl(p / "claims.jsonl")
     claims = {c["id"]: c for c in claims_all}
     active = [c for c in claims_all if c["status"] == "active"]
+    for q in read_json(p / "plan.json", {"questions": []}).get("questions", []):
+        stale = [x for x in q.get("answer_claims", []) if claims.get(x, {}).get("status") != "active"]
+        if stale:  # T10, задача 2: ответ вопроса ссылался на заменённые утверждения, и это никто не видел
+            hint = ", ".join(f"{x}→{claims[x]['superseded_by']}" for x in stale if claims.get(x, {}).get("superseded_by"))
+            warnings.append(f"plan.json {q['id']}: ответ ссылается на недействующие утверждения {', '.join(stale)}"
+                            + (f" (замены: {hint})" if hint else "") + f" — strat q done {q['id']} --claims …")
     retracted = {sid for sid, s in sources.items() if s.get("status") == "retracted"}
     for c in active:
         if bad := [s for s in c.get("sources", []) if s in retracted]:
@@ -1056,7 +1085,11 @@ def transcript_usage(path: Path) -> dict:
                 tools = dict(prev.get("tools", {}))
                 for b in m.get("content") or []:
                     if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
-                        tools[b["id"]] = b.get("name", "")
+                        name = b.get("name", "")
+                        cmd = str((b.get("input") or {}).get("command", "")) if name in ("Bash", "PowerShell") else ""
+                        if "strat.py snapshot" in cmd or "rustore_reviews.py" in cmd:
+                            name = "Snapshot"  # страница, полученная кодом агента, — тоже чтение страницы (T10)
+                        tools[b["id"]] = name
                 seen[m["id"]] = {"model": m.get("model", "unknown"), "usage": m["usage"],
                                  "ts": prev.get("ts") or d.get("timestamp"), "tools": tools, "role": role}
     return seen
@@ -1069,10 +1102,11 @@ def parse_ts(s: str | None) -> dt.datetime | None:
         return None
 
 
-def log_activation(slug: str):
-    """История «какой проект был активен с какого момента» — по ней стоимость сессии делится между проектами."""
+def log_activation(slug: str, how: str = "use"):
+    """История «какой проект был активен с какого момента» — по ней стоимость сессии делится между проектами.
+    how: pin — закреплён при старте сессии, use — strat use, new — strat new."""
     with ACTIVITY.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"at": now(), "slug": slug, **({"session": SESSION} if SESSION else {})},
+        f.write(json.dumps({"at": now(), "slug": slug, "how": how, **({"session": SESSION} if SESSION else {})},
                            ensure_ascii=False) + "\n")
 
 
@@ -1083,6 +1117,10 @@ def attribute_messages(msgs: dict, session: str | None = None) -> dict[str, dict
     сессией её не касается. Старые сессии без своих активаций — по общей истории папки, как раньше."""
     rows = read_jsonl(ACTIVITY)
     own = [e for e in rows if session and e.get("session") == session]
+    # T10, задача 2: сессия закрепила проект папки при старте (pin), а первым делом создала новый (new) — вступление
+    # (/start, вопросы постановки) относится к новому проекту, а не к тому, что был открыт в папке
+    if len(own) >= 2 and own[0].get("how") == "pin" and own[1].get("how") == "new":
+        own = [{**own[1], "at": own[0]["at"]}] + own[2:]
     events = sorted(((parse_ts(e.get("at")), e.get("slug")) for e in (own or rows)), key=lambda x: x[0] or dt.datetime.min.replace(tzinfo=dt.timezone.utc))
     events = [(t, s) for t, s in events if t]
     current = active_slug(required=False)
@@ -1199,7 +1237,7 @@ def usage_cost(msgs: dict, pricing: dict) -> dict:
         # первый → «веб-поисков 0» при 24 поисках субагентов. Оба тарифицируются как поиск.
         names = list((v.get("tools") or {}).values())
         ws = ((u.get("server_tool_use") or {}).get("web_search_requests", 0) or 0) + names.count("WebSearch")
-        tot["web_fetches"] += ((u.get("server_tool_use") or {}).get("web_fetch_requests", 0) or 0) + names.count("WebFetch")
+        tot["web_fetches"] += ((u.get("server_tool_use") or {}).get("web_fetch_requests", 0) or 0) + names.count("WebFetch") + names.count("Snapshot")
         pr = price_for(model, pricing)
         usd = 0.0
         if pr:
@@ -1419,9 +1457,17 @@ def how_markdown(p: Path) -> str:
     L.append(f"- **Этапы:** {stages or '—'}.")
     if span is not None:
         h, mnt = divmod(int(span.total_seconds() // 60), 60)
+        # чистое время: паузы дольше 15 мин между записями журнала — ожидание ответа человека или перерыв (T10, задача 2:
+        # 7,5 ч «от создания до сдачи», из них ~7 ч агент ждал человека на воротах)
+        end = done or max(times)
+        ts = sorted(x for x in times if x <= end)
+        gaps = [(b - a).total_seconds() for a, b in zip(ts, ts[1:])]
+        work = sum(g for g in gaps if g <= 900) // 60
+        waits = sum(1 for g in gaps if g > 900)
         L.append(f"- **Время:** {h} ч {mnt} мин от создания проекта до "
-                 f"{'сдачи отчёта (этап support)' if done else 'последней записи журнала'}; "
-                 f"сессий агента: {len(sessions)}.")
+                 f"{'сдачи отчёта (этап support)' if done else 'последней записи журнала'}; из них работа агента ≈ "
+                 f"{int(work // 60)} ч {int(work % 60)} мин" + (f", пауз дольше 15 мин (ожидание человека, перерывы): {waits}"
+                                                              if waits else "") + f"; сессий агента: {len(sessions)}.")
     st_types = {}
     for s in sources:
         st_types[s["type"]] = st_types.get(s["type"], 0) + 1
@@ -1592,7 +1638,7 @@ def hook_session_start(d):
     slug = active_slug(required=False)
     pin = session_pin()
     if slug and pin and not pin.exists():  # закрепить за сессией проект, активный в папке на момент старта
-        set_active(slug, folder=False)
+        set_active(slug, folder=False, how="pin")
     if not slug:
         say_context(d, "Агент-стратег. Активного проекта нет. Предложи пользователю /start (новая задача) "
                     f"или выбор из существующих: {', '.join(list_projects()) or 'пока нет'}.", "SessionStart")
@@ -2032,6 +2078,7 @@ def main(argv=None):
     s.add_argument("--kind"); s.add_argument("--text"); s.add_argument("--sources"); s.add_argument("--depends")
     s.add_argument("--confidence", choices=["high", "medium", "low"]); s.add_argument("--section"); s.add_argument("--by")
     s.add_argument("--reason"); s.add_argument("--by-id", dest="by_id"); s.add_argument("--all", action="store_true")
+    s.add_argument("--rewire", action="store_true", help="supersede: зависимые утверждения переподвесить на --by-id")
     s.set_defaults(f=cmd_claim)
 
     s = sp.add_parser("impact", help="что затронет изменение S/C"); s.add_argument("ids")

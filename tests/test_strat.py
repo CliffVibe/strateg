@@ -403,10 +403,13 @@ class StratTest(unittest.TestCase):
                          {"stage": "support", "at": "2026-11-12T22:39:00+03:00"}]
         (self.p / "state.json").write_text(json.dumps(st), encoding="utf-8")
         (self.p / "journal.md").write_text("# Журнал\n\n- `2026-11-12T22:05:00+03:00` **system** — проект создан\n"
+                                           "- `2026-11-12T22:30:00+03:00` **human** — ответ на воротах после паузы\n"
+                                           "- `2026-11-12T22:35:00+03:00` **action** — работа\n"
                                            "- `2026-11-12T22:47:00+03:00` **revision** — правка после сдачи\n",
                                            encoding="utf-8")
         out = self.ok("how")
         self.assertIn("0 ч 34 мин от создания проекта до сдачи отчёта", out)
+        self.assertIn("работа агента ≈ 0 ч 5 мин, пауз дольше 15 мин (ожидание человека, перерывы): 1", out)
 
     def test_snapshot_saves_page_text_verbatim(self):
         # T10 (жюри): снимки-пересказы WebFetch — слабое доказательство; strat snapshot сохраняет текст страницы
@@ -537,6 +540,39 @@ class StratTest(unittest.TestCase):
         self.assertIn("C002: в тексте есть числа, которых нет ни в цитате, ни в снимке источника: 8.15, 17.6", out)
         self.assertIn("C002: в тексте есть числа", self.ok("check"))  # предупреждение, а не ошибка
         self.assertNotIn("C001:", self.ok("check"))
+
+    def test_fact_numbers_month_like_words_do_not_crash(self):
+        # T10, задача 2: «5 магазинов» принималось за «5 мая» → claim add падал с StopIteration
+        snap = self._snap("Сеть из 12 магазинов, запуск 28 мая 2025 г.")
+        self.ok("source", "add", "--type", "web", "--title", "A", "--url", "https://a.ru/m", "--snapshot", snap,
+                "--snapshot-kind", "page", "--quote", "Сеть из 12 магазинов")
+        out = self.ok("claim", "add", "--kind", "fact", "--text", "Сеть из 12 магазинов, запуск 28 мая 2025 г., 10 малых точек",
+                      "--sources", "S001")
+        self.assertIn("числа, которых нет", out)  # «10» нет в источнике — предупреждение, но не падение
+        self.assertNotIn("28.5", out.split("числа, которых нет")[1].split("—")[0])
+
+    def test_supersede_rewire_and_stale_question_answers(self):
+        # T10, задача 2: после замены допущения зависимые прогнозы перерегистрировали вручную; ответ Q06 в plan.json
+        # ссылался на заменённые утверждения, и check этого не видел
+        self.ok("claim", "add", "--kind", "assumption", "--text", "Цена 199 ₽")                                  # C001
+        self.ok("claim", "add", "--kind", "forecast", "--text", "Выручка X", "--depends", "C001")              # C002
+        self.ok("claim", "add", "--kind", "forecast", "--text", "Порог Y", "--depends", "C001")                # C003
+        self.ok("claim", "add", "--kind", "assumption", "--text", "Цена 149 ₽")                                  # C004
+        self.ok("q", "add", "--text", "Какая цена?")
+        self.ok("q", "done", "Q01", "--claims", "C001")
+        out = self.ok("claim", "supersede", "C001", "--by-id", "C004", "--reason", "новая цена", "--rewire")
+        self.assertIn("Переподвешены на C004: C002, C003", out)
+        rows = {c["id"]: c for c in map(json.loads, (self.p / "claims.jsonl").read_text(encoding="utf-8").splitlines())}
+        self.assertEqual(rows["C002"]["depends_on"], ["C004"])
+        out = self.ok("check")
+        self.assertNotIn("опирается на C001", out)
+        self.assertNotIn("plan.json Q01", out)  # supersede сам переписал ответ Q01 на C004
+        plan = json.loads((self.p / "plan.json").read_text(encoding="utf-8"))
+        self.assertEqual(plan["questions"][0]["answer_claims"], ["C004"])
+        self.ok("q", "add", "--text", "Какой порог?")
+        self.ok("q", "done", "Q02", "--claims", "C003")
+        self.ok("claim", "retract", "C003", "--reason", "ошибка расчёта")
+        self.assertIn("plan.json Q02: ответ ссылается на недействующие утверждения C003", self.ok("check"))
 
     def test_quote_in_pdf_is_flagged_for_verifier(self):
         (self.p / "inputs" / "r.pdf").write_bytes(b"%PDF-1.4")
