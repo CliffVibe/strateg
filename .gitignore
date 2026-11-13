@@ -11,5 +11,6 @@ projects/.sessions/
 projects/.costs-seen.json
 projects/*/costs/*.json
 !projects/demo-*/costs/*.json
+!projects/esim-travel/costs/*.json
 *.tmp
 .DS_Store
