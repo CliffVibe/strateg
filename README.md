@@ -6,12 +6,32 @@
 
 > Только открытые источники и собственные материалы. Не содержит и не использует закрытых данных МегаФона или других компаний.
 
+## Что смотреть жюри
+
+| Что | Где |
+|---|---|
+| Описание работы (PDF со скриншотами) | [`docs/submission/opisanie-raboty.pdf`](docs/submission/opisanie-raboty.pdf) · текст — [`docs/06-submission.md`](docs/06-submission.md) |
+| Демо-проект: отчёт для решения | [`projects/demo-app-retention/report.md`](projects/demo-app-retention/report.md) (`report.html` — с подсказками по источникам) |
+| Демо: стратегии и план проверки | [`projects/demo-app-retention/work/`](projects/demo-app-retention/work/) — ситуация, варианты, продуктовая и коммуникационная стратегии, план проверки |
+| Демо: доказательная база | реестры `sources.jsonl`, `claims.jsonl`, `decisions.jsonl`, снимки страниц `snapshots/`, журнал `journal.md`, стоимость `costs/` |
+| Видео работы агента | ссылка будет добавлена при сдаче |
+| Сравнение с обычным чатом | [`eval/results.md`](eval/results.md) |
+| Как делали: журнал, ошибки ИИ | [`docs/process/journal.md`](docs/process/journal.md), [`docs/process/ai-errors.md`](docs/process/ai-errors.md) |
+
+Брифа демо-проекта от МегаФона к сроку не было — организаторы разрешили работать на открытых источниках; задачу
+поставил участник в роли руководителя продукта. `projects/antifraud-free` — тренировочный проект (с пересмотром
+решения), `projects/t06-sandbox` — служебная песочница проверки устойчивости.
+
+Проверить, что всё сходится: `python scripts/strat.py -p demo-app-retention check` (0 ошибок) и `… impact S026`
+(какие выводы и решения держатся на источнике).
+
 ## Запуск за 3 шага
 
-**Нужно:** Claude Code (или Cursor), Python 3.10+ в PATH как `python`, Git. Подписка Claude или ключ API.
+**Нужно:** Claude Code (или Cursor), Python 3.10+ (`python` или `python3` в PATH), Git. Подписка Claude или ключ API.
 Платные сервисы сверх этого — **не нужны**. Необязательно: ключ Jev (TypeSafe) для дешёвой классификации — см. `docs/04-tooling.md`.
 
-1. `git clone https://github.com/CliffVibe/strateg.git && cd strateg` → `python -m unittest discover -s tests` (должно быть OK).
+1. `git clone https://github.com/CliffVibe/strateg.git && cd strateg` → `python -m unittest discover -s tests`
+   (на macOS/Linux — `python3`; должно быть OK).
 2. `claude` в папке → доверить папку. Хук покажет: «Активного проекта нет».
 3. Напиши: **«/start — хочу понять, почему падает удержание в нашем приложении»** (или свою задачу) и приложи материалы.
 
@@ -52,7 +72,8 @@ docs/                концепция, архитектура, план, ин�
 - Агент не заменяет реальные интервью и данные: модельные респонденты дают только гипотезы.
 - Открытые источники по российскому рынку часто без методологии — агент помечает их низкой надёжностью и говорит о пробелах.
 - Стоимость на подписке — оценка в ценах API (цены — `config/pricing.json`, сверять перед сдачей).
-- Windows: хуки запускаются через Git Bash (ставится вместе с Claude Code). Если `python` не находится — замените на `py` в `.claude/settings.json`.
+- Хуки запускаются через bash (на Windows — Git Bash, ставится вместе с Claude Code) и берут `python`, а если его нет —
+  `python3`. Если на Windows есть только `py` — замените в `.claude/settings.json`.
 
 ### Cursor (нужен ≥ 3.0.0)
 
