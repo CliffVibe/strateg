@@ -393,6 +393,9 @@ class StratTest(unittest.TestCase):
         own = {"tool_name": "Read", "tool_input": {"file_path": str(self.tmp / ".claude" / "settings.json")},
                "tool_response": evil}
         self.assertEqual(self.ok("hook", "injection-scan", stdin=json.dumps(own)).strip(), "")
+        own_sh = {"tool_name": "Bash", "tool_input": {"command": f"cat {self.tmp / '.claude' / 'settings.json'}"},
+                  "tool_response": evil}
+        self.assertEqual(self.ok("hook", "injection-scan", stdin=json.dumps(own_sh)).strip(), "")
         ext = {"tool_name": "Read", "tool_input": {"file_path": str(self.p / "inputs" / "a.md")}, "tool_response": evil}
         self.assertIn("ДАННЫЕ источника", self.ok("hook", "injection-scan", stdin=json.dumps(ext)))
 
@@ -573,6 +576,22 @@ class StratTest(unittest.TestCase):
         self.ok("q", "done", "Q02", "--claims", "C003")
         self.ok("claim", "retract", "C003", "--reason", "ошибка расчёта")
         self.assertIn("plan.json Q02: ответ ссылается на недействующие утверждения C003", self.ok("check"))
+
+    def test_redact_personal_data_in_snapshot(self):
+        # T10: в снимке отзывов остались имена авторов; маскировка — единственное разрешённое изменение снимка
+        snap = self._snap("Отзывы:\n1. Максим: \"Бот не переводит на оператора\"\n2. Анна: \"Нормально\"\nРейтинг: 3,2")
+        self.ok("source", "add", "--type", "web", "--title", "A", "--url", "https://a.ru/r", "--snapshot", snap,
+                "--snapshot-kind", "summary", "--quote", "Бот не переводит на оператора")
+        name = Path(snap).name
+        self.assertIn("Образец не найден", self.fails("redact", name, "--pattern", "Пётр", "--reason", "пдн"))
+        self.assertIn("пропадёт цитата", self.fails("redact", name, "--pattern", "Бот", "--reason", "пдн"))
+        out = self.ok("redact", name, "--pattern", r"^(\d+\. )[^:\n]+:", "--with", r"\1Автор:", "--reason", "имена авторов")
+        self.assertIn("замаскировано 2; sha256 обновлён у S001", out)
+        text = Path(snap).read_text(encoding="utf-8")
+        self.assertNotIn("Максим", text)
+        self.assertIn("1. Автор: \"Бот не переводит", text)
+        self.ok("check")  # sha256 совпадает, цитата на месте
+        self.assertIn("security", (self.p / "journal.md").read_text(encoding="utf-8"))
 
     def test_quote_in_pdf_is_flagged_for_verifier(self):
         (self.p / "inputs" / "r.pdf").write_bytes(b"%PDF-1.4")

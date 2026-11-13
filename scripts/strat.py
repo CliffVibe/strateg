@@ -422,7 +422,7 @@ class _PageText(html.parser.HTMLParser):
 
 
 def cmd_snapshot(a):
-    """Снимок страницы ДОСЛОВНО (вид page): T10 — жюри: снимки-пересказы WebFetch по 300–1000 байт — слабое
+    """Снимок страницы ДОСЛОВНО (вид page): T10 — независимая проверка (Fable 5.2 в роли жюри): снимки-пересказы WebFetch по 300–1000 байт — слабое
     доказательство; дата и детали из пересказа бывают неверны (T08). Пишет новый файл в snapshots/, не перезаписывает."""
     p = pdir(a.project)
     allowed = read_json(p / "state.json", {}).get("allowed_sources", [])
@@ -456,6 +456,34 @@ def cmd_snapshot(a):
     print(f"✓ {rel} — {len(text)} символов текста страницы.\nДальше: найди в снимке дату публикации и цитату, затем\n"
           f"  python scripts/strat.py source add --type web --url {a.url} --snapshot {rel} --snapshot-kind page "
           f"--date <ГГГГ-ММ-ДД> --date-from page --quote \"<дословно из снимка>\" --title … --publisher …")
+
+
+def cmd_redact(a):
+    """Замаскировать персональные данные в снимке — единственное разрешённое изменение снимка. T10: в снимке
+    отзывов RuStore демо остались имена авторов (ТЗ: без персональных данных в репозитории). sha256 обновляется
+    у всех источников этого снимка, цитаты действующих источников должны остаться на месте, всё — в журнал."""
+    p = pdir(a.project)
+    f = resolve_path(p, a.snapshot) or resolve_path(p / "snapshots", a.snapshot)
+    if not f or not is_snapshot_path(f.resolve().as_posix()):
+        die(f"Нет снимка {a.snapshot} в snapshots/ проекта")
+    old = f.read_text(encoding="utf-8")
+    new, n = re.subn(a.pattern, a.repl, old, flags=re.M)
+    if not n:
+        die("Образец не найден — нечего маскировать")
+    rows = read_jsonl(p / "sources.jsonl")
+    users = [r for r in rows if r.get("snapshot") and (rp := resolve_path(p, r["snapshot"])) and rp.resolve() == f.resolve()]
+    broken = [r["id"] for r in users if r.get("status", "active") == "active" and r.get("quote")
+              and not quote_found(r["quote"], new)]
+    if broken:
+        die(f"После маскировки пропадёт цитата у {', '.join(broken)} — уточни образец")
+    f.write_text(new, encoding="utf-8")
+    digest = sha256_file(f)
+    for r in users:
+        r["sha256"] = digest
+    write_jsonl(p / "sources.jsonl", rows)
+    journal(p, f"снимок {f.name}: замаскированы персональные данные ({n}); sha256 обновлён у "
+               f"{', '.join(r['id'] for r in users) or '—'}: {a.reason}", "security")
+    print(f"✓ {f.name}: замаскировано {n}; sha256 обновлён у {', '.join(r['id'] for r in users) or '—'}")
 
 
 def cmd_input(a):
@@ -1659,6 +1687,10 @@ def hook_injection_scan(d):
     ti = d.get("tool_input") or {}
     if d.get("tool_name") == "Read" and agent_file(str(ti.get("file_path") or "")):
         return  # собственные файлы агента (правила, хуки, тесты) — не внешний материал; ложные тревоги в T06, T10
+    if d.get("tool_name") in ("Bash", "PowerShell"):  # cat/Get-Content только файлов агента — то же самое
+        files = re.findall(r"[^\s'\"<>|;&]+\.(?:json|md|py|txt|ya?ml)", str(ti.get("command") or ""))
+        if files and all(agent_file(x) for x in files):
+            return
     resp = d.get("tool_response")
     text = json.dumps(resp, ensure_ascii=False) if not isinstance(resp, str) else resp
     hits = sorted({m.group(0)[:80] for rx in INJECTION_RE for m in re.finditer(rx, text, flags=re.I)})
@@ -2054,6 +2086,10 @@ def main(argv=None):
     s = sp.add_parser("allow", help="разрешённые источники: add <домен…> | list ('*' — любые открытые)")
     s.add_argument("action", choices=["add", "list"]); s.add_argument("domains", nargs="*"); s.set_defaults(f=cmd_allow)
 
+    s = sp.add_parser("redact", help="замаскировать персональные данные в снимке (sha256 источников обновится)")
+    s.add_argument("snapshot"); s.add_argument("--pattern", required=True, help="регулярное выражение")
+    s.add_argument("--with", dest="repl", default="[скрыто]"); s.add_argument("--reason", required=True)
+    s.set_defaults(f=cmd_redact)
     s = sp.add_parser("snapshot", help="снимок страницы дословно в snapshots/ (вид page) — вместо пересказа WebFetch")
     s.add_argument("url"); s.add_argument("--q", help="вопрос исследования (Qxx) — в имени файла")
     s.set_defaults(f=cmd_snapshot)
