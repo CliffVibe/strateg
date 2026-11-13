@@ -589,8 +589,7 @@ class StratTest(unittest.TestCase):
         self.assertIn("замаскировано 2; sha256 обновлён у S001", out)
         text = Path(snap).read_text(encoding="utf-8")
         self.assertNotIn("Максим", text)
-        self.assertNotIn(b"", Path(snap).read_bytes())  # «
-», как в git — иначе sha256 у клона другой
+        self.assertNotIn(bytes([13]), Path(snap).read_bytes())  # переводы строк LF, как в git, иначе sha256 у клона другой
         self.assertIn("1. Автор: \"Бот не переводит", text)
         self.ok("check")  # sha256 совпадает, цитата на месте
         self.assertIn("security", (self.p / "journal.md").read_text(encoding="utf-8"))
