@@ -42,8 +42,21 @@ def build() -> Path:
     page.write_text(f'<!doctype html><html lang="ru"><meta charset="utf-8"><title>Стратег продукта — описание работы</title>'
                     f"<style>{CSS}</style><body>{''.join(parts)}</body></html>", encoding="utf-8")
     pdf = OUT / "opisanie-raboty.pdf"
-    subprocess.run([str(EDGE), "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
-                    f"--print-to-pdf={pdf}", page.as_uri()], check=True, capture_output=True)
+    tmp = OUT / "opisanie-raboty.tmp.pdf"
+    import time
+    for _ in range(3):  # Edge headless иногда завершается, не записав файл (когда открыт обычный Edge)
+        subprocess.run([str(EDGE), "--headless=new", "--disable-gpu", "--no-pdf-header-footer",
+                        f"--user-data-dir={Path(__import__('tempfile').gettempdir()) / 'strateg-edge'}",
+                        f"--print-to-pdf={tmp}", page.as_uri()], capture_output=True)
+        for _ in range(40):
+            if tmp.exists() and tmp.stat().st_size:
+                break
+            time.sleep(0.25)
+        if tmp.exists() and tmp.stat().st_size:
+            tmp.replace(pdf)
+            break
+    else:
+        raise RuntimeError("Edge не сохранил PDF")
     page.unlink()
     return pdf
 

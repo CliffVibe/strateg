@@ -14,13 +14,15 @@
 | Демо-проект: отчёт для решения | [`projects/demo-app-retention/report.md`](projects/demo-app-retention/report.md) (`report.html` — с подсказками по источникам) |
 | Демо: стратегии и план проверки | [`projects/demo-app-retention/work/`](projects/demo-app-retention/work/) — ситуация, варианты, продуктовая и коммуникационная стратегии, план проверки |
 | Демо: доказательная база | реестры `sources.jsonl`, `claims.jsonl`, `decisions.jsonl`, снимки страниц `snapshots/`, журнал `journal.md`, стоимость `costs/` |
+| Вторая задача (другая область, основной агент на Sonnet) | [`projects/esim-travel/report.md`](projects/esim-travel/report.md) — «кому и как продавать eSIM для поездок» |
 | Видео работы агента | ссылка будет добавлена при сдаче |
-| Сравнение с обычным чатом | [`eval/results.md`](eval/results.md) |
+| Сравнение с обычным чатом (две задачи, слепая проверка фактов) | [`eval/results.md`](eval/results.md) |
 | Как делали: журнал, ошибки ИИ | [`docs/process/journal.md`](docs/process/journal.md), [`docs/process/ai-errors.md`](docs/process/ai-errors.md) |
 
 Брифа демо-проекта от МегаФона к сроку не было — организаторы разрешили работать на открытых источниках; задачу
-поставил участник в роли руководителя продукта. `projects/antifraud-free` — тренировочный проект (с пересмотром
-решения), `projects/t06-sandbox` — служебная песочница проверки устойчивости.
+поставил участник в роли руководителя продукта. `projects/esim-travel` — вторая задача из другой области;
+`projects/antifraud-free` — тренировочный проект (с пересмотром решения); `projects/t06-sandbox` — служебная песочница
+проверки устойчивости.
 
 Проверить, что всё сходится: `python scripts/strat.py -p demo-app-retention check` (0 ошибок) и `… impact S026`
 (какие выводы и решения держатся на источнике).

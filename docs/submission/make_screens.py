@@ -19,11 +19,19 @@ def run(args: list[str], stdin: str | None = None) -> tuple[str, int]:
 
 
 def shot(page: Path, png: Path, w: int, h: int):
+    """Edge headless иногда завершается, не записав файл (когда открыт обычный Edge) — повторяем до трёх раз."""
+    import time
     tmp = page.with_suffix(".tmp.png")
-    subprocess.run([str(EDGE), "--headless=new", "--disable-gpu", "--hide-scrollbars", f"--window-size={w},{h}",
-                    f"--screenshot={tmp}", page.as_uri()], check=True, capture_output=True)
-    tmp.replace(png)
-
+    for _ in range(3):
+        subprocess.run([str(EDGE), "--headless=new", "--disable-gpu", "--hide-scrollbars",
+                        f"--user-data-dir={Path(__import__('tempfile').gettempdir()) / 'strateg-edge'}",
+                        f"--window-size={w},{h}", f"--screenshot={tmp}", page.as_uri()], capture_output=True)
+        for _ in range(20):
+            if tmp.exists() and tmp.stat().st_size:
+                tmp.replace(png)
+                return
+            time.sleep(0.25)
+    raise RuntimeError(f"Edge не сохранил скриншот {png.name}")
 
 def terminal(name: str, blocks: list[tuple[str, str]], w: int = 1100):
     body = "".join(f'<div class="cmd">$ {html.escape(c)}</div><pre>{html.escape(o)}</pre>' for c, o in blocks)
@@ -55,6 +63,7 @@ def main():
                           "\n".join(chk[:9]) + f"\n…\nИтог: ошибок {sum(x.startswith('✗') for x in chk)}, "
                           f"предупреждений {sum(x.startswith('⚠') for x in chk)}")])
     shot(ROOT / "projects" / "demo-app-retention" / "report.html", OUT / "report-demo.png", 1200, 1500)
+    shot(ROOT / "projects" / "esim-travel" / "report.html", OUT / "report-esim.png", 1200, 1300)
     print("\n".join(sorted(p.name for p in OUT.glob("*.png"))))
 
 
