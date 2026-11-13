@@ -476,7 +476,7 @@ def cmd_redact(a):
               and not quote_found(r["quote"], new)]
     if broken:
         die(f"После маскировки пропадёт цитата у {', '.join(broken)} — уточни образец")
-    f.write_text(new, encoding="utf-8")
+    f.write_bytes(new.encode("utf-8"))  # переводы строк «\n», как в git (.gitattributes eol=lf): иначе sha256 у клона другой
     digest = sha256_file(f)
     for r in users:
         r["sha256"] = digest
