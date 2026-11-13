@@ -1,0 +1,202 @@
+[
+ {
+  "id": "X01",
+  "statement": "Оптовая цена eSIM: Турция — от €0,52 за 1 ГБ; пакет «Европа» 10 ГБ на 30 дней — €9,59 без НДС",
+  "url": "https://bappy-dog-website.pages.dev/pricing/"
+ },
+ {
+  "id": "X02",
+  "statement": "Опрос Counterpoint (3 535 респондентов, 7 стран без РФ, сентябрь 2024): главные причины выбора туристической eSIM — более низкая стоимость, лучшее покрытие и удобство; барьеры — низкая осведомлённость, представление о высокой цене и сложности установки; только 24% осведомлённых об eSIM пользовались туристической eSIM.",
+  "url": "https://counterpointresearch.com/en/insights/survey-87-of-users-in-7-countries-affirm-esims-critical-role-in-enhancing-travel-experience"
+ },
+ {
+  "id": "X03",
+  "statement": "Автор обзора на DTF (партнёрские ссылки; год публикации не виден) пишет, что МТС продаёт туристические eSIM через приложение «МТС Оплата», а у Билайна нет отдельного продукта «туристическая eSIM» — только перевод основного номера в eSIM и роуминговые опции.",
+  "url": "https://dtf.ru/5010571"
+ },
+ {
+  "id": "X04",
+  "statement": "По рейтингу DTF (тарифы на май 2026, партнёрский материал), Yesim 10 ГБ на 30 дней стоит $17.90 ($1.79/ГБ), безлимит на 7 дней — $22.80, на 30 дней — $54.90; у безлимита есть ограничение скорости после порога.",
+  "url": "https://dtf.ru/topraiting/5046643-deshevaya-esim-dlya-puteshestviy"
+ },
+ {
+  "id": "X05",
+  "statement": "Минцифры в июле 2026 года заявило, что плату за зарубежный трафик сверх 15 ГБ не вводят",
+  "url": "https://expert.ru/news/v-mintsifry-isklyuchili-vvedenie-platy-za-inostrannyy-trafik"
+ },
+ {
+  "id": "X06",
+  "statement": "По данным ФСБ, в 2024 году россияне выезжали за границу с туристическими целями 11,6 млн раз, годом ранее — 9,3 млн раз.",
+  "url": "https://incrussia.ru/news/fsb-v-2024-godu-rossiyane-vyezzhali-za-granitsu-29-2-mln-raz-chashhe-vsego-v-turtsiyu/"
+ },
+ {
+  "id": "X07",
+  "statement": "По данным ФСБ, за девять месяцев 2023 года россияне совершили 21 млн поездок за границу (все цели визита), за девять месяцев 2024 года — 22,4 млн, за первое полугодие 2025 года — 13,7 млн.",
+  "url": "https://incrussia.ru/news/v-2023-godu-rossiyane-na-20-chashhe-vyezzhali-za-rubezh/"
+ },
+ {
+  "id": "X08",
+  "statement": "Opensignal (июль 2026): среди пользователей его глобальной базы доля пользователей туристической eSIM выросла с 1.7% в Q2 2025 до 3.3% в Q2 2026; путешественники в дальние поездки (в другой регион) используют её в 2.5 раза чаще, чем остающиеся ближе к дому, многострановые — в 1.5 раза чаще; внутри зон roam-like-home (например, ЕС) роуминг по-прежнему преобладает.",
+  "url": "https://insights.opensignal.com/2026/07/travel-esim-roaming-webinar/dt"
+ },
+ {
+  "id": "X09",
+  "statement": "По пересказу Opensignal опроса Kaleido, путешественники выбирают туристические eSIM не только по цене: «шок от счёта» привёл их в категорию, но сейчас им нужен контроль — что именно купили, какой объём данных и что будет при его исчерпании — и покупка внутри цифрового пути, а не в магазине или через звонок в поддержку.",
+  "url": "https://insights.opensignal.com/2026/07/travel-esim-roaming-webinar/dt"
+ },
+ {
+  "id": "X10",
+  "statement": "В первом полугодии 2026 года россияне совершили около 9,5 млн поездок за рубеж (+8,7%), рост замедлился с 12,5% годом ранее (АТОР)",
+  "url": "https://investfuture.ru/articles/chislo-poezdok-rossiyan-za-rubezh-vyroslo-na-8-7-do-9-5-mln-v-pervom-polugodii-37776132"
+ },
+ {
+  "id": "X11",
+  "statement": "Курс евро около 92 рублей (обзор валют на 11.11.2026)",
+  "url": "https://investfuture.ru/articles/obzor-valyut-2026-11-11"
+ },
+ {
+  "id": "X12",
+  "statement": "По сообщениям пользователей иностранных SIM, с 10 июля 2026 роуминговый интернет перестал давать доступ к сайтам и сервисам, заблокированным в России; два источника, близких к российским телеком-компаниям, подтвердили изменения (пересказ ТАСС/Известий).",
+  "url": "https://investfuture.ru/articles/rossiya-uzhestochaet-filtratsiyu-trafika-v-rouminge-i-perekryvaet-dostup-k-blokirovkam-37225708"
+ },
+ {
+  "id": "X13",
+  "statement": "С ноября 2025 года российские SIM-карты после роуминга получают суточное ограничение мобильного интернета; Минцифры подтвердило меру",
+  "url": "https://istories.media/news/2025/11/10/operatori-nachali-blokirovat-mobilnii-internet-rossiyanam-vozvrashchayushchimsya-iz-za-granitsi/"
+ },
+ {
+  "id": "X14",
+  "statement": "Kimola (машинная сводка отзывов о Holafly, дата и объём выборки не видны): установка — лучший показатель (93), технической поддержки (74), решения проблем (63) и работы приложения (56) — худшие; в тексте отмечены неотвеченные обращения и нерешённые вопросы активации и возврата.",
+  "url": "https://kimola.com/reports/holafly-esim-consumer-insights"
+ },
+ {
+  "id": "X15",
+  "statement": "Проект третьего антифрод-пакета предлагает запретить торговлю SIM через агрегаторы, если продавец не оператор.",
+  "url": "https://kod.ru/antifrod-3-telekom"
+ },
+ {
+  "id": "X16",
+  "statement": "Проект третьего антифрод-пакета Минцифры предлагает: удалённое подключение, в том числе по eSIM, только через Госуслуги и биометрию с электронной подписью либо по паспорту через сервис обмена информацией при заранее сверенном с биометрией фото; если законопроект примут, основная часть норм вступит в силу 1 марта 2028 года.",
+  "url": "https://kod.ru/antifrod-3-telekom"
+ },
+ {
+  "id": "X17",
+  "statement": "RuStore и Mail.ru продают eSIM: Турция безлимит на 10 дней — 1 425 ₽; Таиланд 10 ГБ — 1 007 ₽",
+  "url": "https://kod.ru/rustore-esim/amp"
+ },
+ {
+  "id": "X18",
+  "statement": "По данным «Коммерсанта» (июнь 2026), в рамках возможного третьего антифрод-пакета обсуждается запрет удалённой регистрации eSIM из-за рубежа для российских пользователей; Минцифры на тот момент не подтвердило включение этой меры, решения нет.",
+  "url": "https://kod.ru/uzhestochenie-pravil-dlya-esim"
+ },
+ {
+  "id": "X19",
+  "statement": "В мире 39% путешественников не пользуются мобильными данными за границей; 41% покупателей eSIM берут её у своего оператора (Kaleido и Telna)",
+  "url": "https://mobileinsights.mobileworldlive.com/esim-topic-hub/partner-content-feature-how-mnos-can-compete-with-global-players-through-travel-esim-offers"
+ },
+ {
+  "id": "X20",
+  "statement": "На официальной странице Билайна (получена 2026-11-13) Travel eSIM — «eSIM для поездок за границу — без звонков и смс, только интернет»: 164 страны на выбор, оплата рублями, для абонентов любых операторов; остаток ГБ сгорает по окончании срока пакета, когда ГБ закончатся — интернет отключится, пакет можно докупить на сайте.",
+  "url": "https://moskva.beeline.ru/travel-esim/"
+ },
+ {
+  "id": "X21",
+  "statement": "По данным МегаФона, 24% смартфонов в его сети — iPhone",
+  "url": "https://rg.ru/2026/04/23/operatory-v-rossii-kazhdyj-chetvertyj-abonent-polzuetsia-iphone.html"
+ },
+ {
+  "id": "X22",
+  "statement": "Главные туристические направления 2025 года: Турция 4,61 млн поездок, ОАЭ 1,72 млн, Египет 1,62 млн, Китай 1,36 млн, Таиланд 0,89 млн",
+  "url": "https://ru.themoscowtimes.com/2026/02/13/rossiyane-ustanovili-11-letnii-rekord-po-rashodam-na-poezdki-za-granitsu-a187148"
+ },
+ {
+  "id": "X23",
+  "statement": "В 2025 году россияне совершили 31,5 млн выездов за рубеж (+8%), из них 13,4 млн туристических поездок (+15,6%), по данным Погранслужбы ФСБ",
+  "url": "https://ru.themoscowtimes.com/2026/02/13/rossiyane-ustanovili-11-letnii-rekord-po-rashodam-na-poezdki-za-granitsu-a187148"
+ },
+ {
+  "id": "X24",
+  "statement": "Расходы россиян на поездки за рубеж в 2025 году — $49,7 млрд, более чем на 25% больше, чем годом ранее (Банк России)",
+  "url": "https://ru.themoscowtimes.com/2026/02/13/rossiyane-ustanovili-11-letnii-rekord-po-rashodam-na-poezdki-za-granitsu-a187148"
+ },
+ {
+  "id": "X25",
+  "statement": "По обзору посредника Oplatym.ru, российские банковские карты для прямой оплаты на зарубежном сайте Holafly обычно не подходят; на сайте указаны Visa, Mastercard, PayPal, Apple Pay и Google Pay.",
+  "url": "https://vc.ru/services/3045755-holafly-esim-kak-oplatit-iz-rossii"
+ },
+ {
+  "id": "X26",
+  "statement": "Минцифры заявляет, что Госуслуги, банки и маркетплейсы работают с иностранных IP в штатном режиме",
+  "url": "https://vfokuse.mail.ru/news/69618689-mintsifryi-rossijskie-onlajn-servisyi-prodolzhayut-shtatno-rabotat-za-rubezhom/"
+ },
+ {
+  "id": "X27",
+  "statement": "МТС с ноября 2024 года продаёт eSIM для поездок в более чем 200 стран через «МТС Оплату», купить может абонент любого оператора; Турция: 1 ГБ — 100 ₽, 20 ГБ — 1 200 ₽",
+  "url": "https://www.comnews.ru/content/236575/2024-11-28/2024-w48/1010/mts-zapustila-prodazhu-esim-dlya-zarubezhnyh-poezdok"
+ },
+ {
+  "id": "X28",
+  "statement": "Новых регистраций eSIM весной 2026 года стало на 78% больше, чем годом ранее (Unisimka); МегаФон говорит, что число eSIM почти не растёт",
+  "url": "https://www.comnews.ru/content/245897/2026-06-19/2026-w25/1008/spros-esim-vyros-za-vesnu"
+ },
+ {
+  "id": "X29",
+  "statement": "Минцифры пояснило «Известиям» (июль 2026): к роуминговому интернет-трафику зарубежных абонентов в сетях российских операторов применяется общий режим фильтрации; речь об ограничении доступа к заблокированным в РФ ресурсам, а не о полном отключении интернета.",
+  "url": "https://www.comnews.ru/content/246345/2026-07-10/2026-w28/1009/stop-signal-rf-otklyuchili-vozmozhnost-zakhoda-nedostupnye-resursy-inostrannykh-simok"
+ },
+ {
+  "id": "X30",
+  "statement": "Минцифры пояснили «Известиям» (10.07.2026), что к роуминговому интернет-трафику зарубежных абонентов в сетях российских операторов применяется общий режим фильтрации, действующий на территории страны; речь не о полном отключении интернета, а об ограничении доступа к ресурсам, заблокированным в РФ.",
+  "url": "https://www.comnews.ru/content/246345/2026-07-10/2026-w28/1009/stop-signal-rf-otklyuchili-vozmozhnost-zakhoda-nedostupnye-resursy-inostrannykh-simok"
+ },
+ {
+  "id": "X31",
+  "statement": "По обзору iGuides от 09.03.2026, Yesim принимает карты «МИР», Visa/Mastercard РФ и СБП: после выбора страны «Россия» в форме оплаты открывается форма, принимающая «МИР» или СБП; Airalo и Holafly, по тому же обзору, «капризничают» с российскими картами.",
+  "url": "https://www.iguides.ru/main/os/3_luchshikh_esim_dlya_puteshestviy_v_2026_godu_kak_platit_kartoy_mir_i_ne_razoritsya_na_rouminge/"
+ },
+ {
+  "id": "X32",
+  "statement": "Топ стран по заказам eSIM у OneTwoTrip: Турция 16,3%, Китай 13,2%, ОАЭ 11,6%, Таиланд 6,5%, Япония 6,3%",
+  "url": "https://www.onetwotrip.com/ru/blog/travel-news/puteshestvenniki-chashhe-vsego-polzuyutsya-esim-dlya-poezdok-v-turcziyu-i-kitaj/"
+ },
+ {
+  "id": "X33",
+  "statement": "По опросу клиентов OneTwoTrip 93% путешественникам важен интернет сразу по прилёте, 78% ни разу не покупали eSIM",
+  "url": "https://www.onetwotrip.com/ru/blog/travel-news/puteshestvenniki-chashhe-vsego-polzuyutsya-esim-dlya-poezdok-v-turcziyu-i-kitaj/"
+ },
+ {
+  "id": "X34",
+  "statement": "Airalo и Holafly не принимают российские карты",
+  "url": "https://www.sostav.ru/blogs/284452/99207"
+ },
+ {
+  "id": "X35",
+  "statement": "Роуминг в Турции на 10 дней (5–10 ГБ) стоит от 3 500 ₽ (МТС) до ≈13 000 ₽ (МегаФон, суточная опция), а eSIM 10 ГБ — 520–820 ₽",
+  "url": "https://www.sostav.ru/blogs/288930/118951"
+ },
+ {
+  "id": "X36",
+  "statement": "Жители России в 2025 году совершили 13,4 млн туристических поездок за границу, на 15,6% больше, чем годом ранее (данные Погранслужбы ФСБ).",
+  "url": "https://www.tourdom.ru/news/turpotok-iz-rossii-za-granitsu-v-2025-godu-vyros-na-15-kakie-strany-v-tope.html"
+ },
+ {
+  "id": "X37",
+  "statement": "Сбер с октября 2025 года продаёт eSIM для более чем 100 стран в СберБанк Онлайн, от 170 ₽ за 1 ГБ",
+  "url": "https://www.vbr.ru/novosti/banki/2025/10/15/sberbank-vipystil-zarybeznyu-simkarty/"
+ },
+ {
+  "id": "X38",
+  "statement": "По данным АТОР, за первое полугодие 2026 года Турцию посетили 2,65 млн российских туристов, на 1,4% больше аналогичного периода прошлого года.",
+  "url": "https://www.vedomosti.ru/politics/news/2026/07/31/1217944-turpotok-iz-rossii"
+ },
+ {
+  "id": "X39",
+  "statement": "Билайн запустил туристическую eSIM для 164 стран: от 1 до 30 ГБ на 3–30 дней, оплата российской картой или через СБП",
+  "url": "https://www.vokrugsveta.ru/company-news/vsegda-na-svyazi-bilain-zapustil-turisticheskuyu-esim-dlya-poezdok-v-164-strany-id76748989/"
+ },
+ {
+  "id": "X40",
+  "statement": "По рекламному материалу ВымпелКома («Вокруг света», дата на странице не указана) пакеты Билайн Travel eSIM — от 3 дней до 1 месяца, до 30 ГБ; 30 ГБ в Европу — от 1050 рублей, в страны СНГ — от 1450 рублей. Это рекламные цены «от», не с официальной страницы Билайна: на ней цен нет.",
+  "url": "https://www.vokrugsveta.ru/company-news/vsegda-na-svyazi-bilain-zapustil-turisticheskuyu-esim-dlya-poezdok-v-164-strany-id76748989/"
+ }
+]

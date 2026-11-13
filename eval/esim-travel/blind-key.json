@@ -1,0 +1,162 @@
+{
+ "X01": {
+  "variant": "A",
+  "orig_id": "A19"
+ },
+ "X02": {
+  "variant": "B",
+  "orig_id": "C009"
+ },
+ "X03": {
+  "variant": "B",
+  "orig_id": "C017"
+ },
+ "X04": {
+  "variant": "B",
+  "orig_id": "C077"
+ },
+ "X05": {
+  "variant": "A",
+  "orig_id": "A22"
+ },
+ "X06": {
+  "variant": "B",
+  "orig_id": "C085"
+ },
+ "X07": {
+  "variant": "B",
+  "orig_id": "C086"
+ },
+ "X08": {
+  "variant": "B",
+  "orig_id": "C030"
+ },
+ "X09": {
+  "variant": "B",
+  "orig_id": "C014"
+ },
+ "X10": {
+  "variant": "A",
+  "orig_id": "A04"
+ },
+ "X11": {
+  "variant": "A",
+  "orig_id": "A24"
+ },
+ "X12": {
+  "variant": "B",
+  "orig_id": "C056"
+ },
+ "X13": {
+  "variant": "A",
+  "orig_id": "A20"
+ },
+ "X14": {
+  "variant": "B",
+  "orig_id": "C015"
+ },
+ "X15": {
+  "variant": "B",
+  "orig_id": "C033"
+ },
+ "X16": {
+  "variant": "B",
+  "orig_id": "C032"
+ },
+ "X17": {
+  "variant": "A",
+  "orig_id": "A11"
+ },
+ "X18": {
+  "variant": "B",
+  "orig_id": "C130"
+ },
+ "X19": {
+  "variant": "A",
+  "orig_id": "A07"
+ },
+ "X20": {
+  "variant": "B",
+  "orig_id": "C036"
+ },
+ "X21": {
+  "variant": "A",
+  "orig_id": "A08"
+ },
+ "X22": {
+  "variant": "A",
+  "orig_id": "A02"
+ },
+ "X23": {
+  "variant": "A",
+  "orig_id": "A01"
+ },
+ "X24": {
+  "variant": "A",
+  "orig_id": "A03"
+ },
+ "X25": {
+  "variant": "B",
+  "orig_id": "C074"
+ },
+ "X26": {
+  "variant": "A",
+  "orig_id": "A21"
+ },
+ "X27": {
+  "variant": "A",
+  "orig_id": "A10"
+ },
+ "X28": {
+  "variant": "A",
+  "orig_id": "A09"
+ },
+ "X29": {
+  "variant": "B",
+  "orig_id": "C001"
+ },
+ "X30": {
+  "variant": "B",
+  "orig_id": "C055"
+ },
+ "X31": {
+  "variant": "B",
+  "orig_id": "C071"
+ },
+ "X32": {
+  "variant": "A",
+  "orig_id": "A06"
+ },
+ "X33": {
+  "variant": "A",
+  "orig_id": "A05"
+ },
+ "X34": {
+  "variant": "A",
+  "orig_id": "A16"
+ },
+ "X35": {
+  "variant": "A",
+  "orig_id": "A17"
+ },
+ "X36": {
+  "variant": "B",
+  "orig_id": "C084"
+ },
+ "X37": {
+  "variant": "A",
+  "orig_id": "A12"
+ },
+ "X38": {
+  "variant": "B",
+  "orig_id": "C093"
+ },
+ "X39": {
+  "variant": "A",
+  "orig_id": "A14"
+ },
+ "X40": {
+  "variant": "B",
+  "orig_id": "C132"
+ }
+}
