@@ -13,6 +13,7 @@ import contextlib
 import datetime as dt
 import hashlib
 import html
+import html.parser
 import json
 import os
 import re
@@ -21,6 +22,7 @@ import shutil
 import sys
 import time
 import urllib.parse
+import urllib.request
 from pathlib import Path
 
 ROOT = Path(os.environ.get("STRAT_ROOT") or Path(__file__).resolve().parent.parent)
@@ -385,6 +387,77 @@ def sha256_file(path: Path) -> str:
     return h.hexdigest()
 
 
+class _PageText(html.parser.HTMLParser):
+    """HTML → текст страницы без разметки, скриптов и меню; абзацы — с новой строки."""
+    SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "header", "form", "button", "iframe"}
+    BLOCK = {"p", "div", "li", "br", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "table", "dd", "dt"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out, self.skip, self.title, self._in_title = [], 0, "", False
+
+    def handle_starttag(self, tag, attrs):
+        if tag in self.SKIP:
+            self.skip += 1
+        elif tag in self.BLOCK:
+            self.out.append("\n")
+        self._in_title = tag == "title"
+
+    def handle_endtag(self, tag):
+        if tag in self.SKIP and self.skip:
+            self.skip -= 1
+        elif tag in self.BLOCK:
+            self.out.append("\n")
+        self._in_title = False
+
+    def handle_data(self, data):
+        if self._in_title:
+            self.title += data
+        elif not self.skip:
+            self.out.append(data)
+
+    def text(self) -> str:
+        t = re.sub(r"[ \t ]+", " ", "".join(self.out))
+        return re.sub(r"\n\s*\n+", "\n\n", "\n".join(x.strip() for x in t.splitlines())).strip()
+
+
+def cmd_snapshot(a):
+    """Снимок страницы ДОСЛОВНО (вид page): T10 — жюри: снимки-пересказы WebFetch по 300–1000 байт — слабое
+    доказательство; дата и детали из пересказа бывают неверны (T08). Пишет новый файл в snapshots/, не перезаписывает."""
+    p = pdir(a.project)
+    allowed = read_json(p / "state.json", {}).get("allowed_sources", [])
+    if not host_allowed(a.url, allowed):
+        die(f"Домен {urllib.parse.urlparse(a.url).hostname} не входит в разрешённые источники проекта. Спроси человека.")
+    req = urllib.request.Request(a.url, headers={"User-Agent": "Mozilla/5.0 (strateg agent)", "Accept-Language": "ru,en"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            ctype, raw = r.headers.get("Content-Type", ""), r.read(5_000_000)
+            charset = r.headers.get_content_charset() or "utf-8"
+    except Exception as e:  # сайт недоступен — это сведение для журнала, а не падение
+        journal(p, f"snapshot {a.url}: {e}", "error")
+        die(f"Страница не получена: {e}. Попробуй WebFetch (снимок вида summary) или другой источник.")
+    if "html" not in ctype and "text" not in ctype:
+        die(f"Это не HTML ({ctype or 'тип не указан'}): PDF и таблицы сохраняй как материал — strat input add <файл>")
+    parser = _PageText()
+    parser.feed(raw.decode(charset, errors="replace"))
+    text = parser.text()
+    if len(text) < 200:
+        die("Текста на странице почти нет (страница собирается скриптами?) — используй WebFetch, снимок вида summary.")
+    host = (urllib.parse.urlparse(a.url).hostname or "page").removeprefix("www.")
+    name = f"{host}-{a.q or 'S'}-{dt.datetime.now().strftime('%H%M%S')}.md"
+    f = p / "snapshots" / name
+    f.parent.mkdir(exist_ok=True)
+    if f.exists():
+        die(f"{name} уже есть — снимок пишется один раз; повтори через секунду")
+    f.write_text(f"# {parser.title.strip() or host}\nURL: {a.url}\nПолучено: {now()} · вид: page (текст страницы дословно, "
+                 f"strat snapshot)\n\n{text}\n", encoding="utf-8", newline="\n")
+    rel = f.relative_to(ROOT).as_posix() if ROOT in f.parents else f.as_posix()
+    journal(p, f"снимок страницы {a.url} → snapshots/{name} ({len(text)} симв.)", "source")
+    print(f"✓ {rel} — {len(text)} символов текста страницы.\nДальше: найди в снимке дату публикации и цитату, затем\n"
+          f"  python scripts/strat.py source add --type web --url {a.url} --snapshot {rel} --snapshot-kind page "
+          f"--date <ГГГГ-ММ-ДД> --date-from page --quote \"<дословно из снимка>\" --title … --publisher …")
+
+
 def cmd_input(a):
     """Добавить исходный материал в inputs/: копия без перезаписи + sha256 в журнале.
     Единственный путь записи в inputs/ для агента (хук protect блокирует остальные)."""
@@ -440,7 +513,7 @@ def quote_found(quote: str, text: str) -> bool:
 def resolve_path(p: Path, rel: str | None) -> Path | None:
     if not rel:
         return None
-    q = Path(rel)
+    q = Path(rel.replace("\\", "/"))  # реестры, записанные на Windows, хранят «\» — на macOS/Linux это не разделитель
     for c in ([q] if q.is_absolute() else [p / q, ROOT / q]):
         if c.exists():
             return c
@@ -518,13 +591,20 @@ def cmd_source(a):
     digest = None
     snap = None
     if a.snapshot:
-        sp = Path(a.snapshot)
+        # путь от корня репозитория, от папки проекта или просто имя файла в snapshots/ (T05: «принимает только
+        # путь от корня» стоило двух попыток)
+        sp = Path(a.snapshot.replace("\\", "/"))
+        sp = sp if sp.exists() else (resolve_path(p, a.snapshot) or resolve_path(p / "snapshots", a.snapshot) or sp)
         if not sp.exists():
-            die(f"Нет файла {sp}")
+            die(f"Нет файла {a.snapshot}")
+        sp = sp.resolve()  # читаем по полному пути, в реестр пишем путь от корня репозитория
         if a.snapshot_kind not in SNAPSHOT_KINDS:
             die("Укажи вид снимка --snapshot-kind: " + "; ".join(f"{k} — {v}" for k, v in SNAPSHOT_KINDS.items()))
         digest = sha256_file(sp)
-        snap = str(sp)
+        try:  # «/» и путь от корня репозитория: реестр переносим между машинами и ОС (жюри T10)
+            snap = sp.relative_to(ROOT.resolve()).as_posix()
+        except ValueError:
+            snap = sp.as_posix()
         same = [r for r in rows if r.get("snapshot") and r.get("sha256") != digest
                 and resolve_path(p, r["snapshot"]) and resolve_path(p, r["snapshot"]).resolve() == sp.resolve()]
         if same:  # T09: параллельные researcher писали снимки с одинаковым именем — второй затирал первый
@@ -548,7 +628,7 @@ def cmd_source(a):
             f"({', '.join(allowed)}). Не используй его или спроси человека; после его «да»: strat allow add <домен>")
     sid = next_id(rows, "S")
     row = {
-        "id": sid, "type": a.type, "title": a.title, "url": a.url, "path": a.path,
+        "id": sid, "type": a.type, "title": a.title, "url": a.url, "path": a.path.replace("\\", "/") if a.path else None,
         "publisher": a.publisher, "published": a.date,
         **({"published_from": a.date_from} if a.date and a.date_from else {}), "retrieved_at": now(),
         "quote": a.quote, "snapshot": snap, "snapshot_kind": a.snapshot_kind if snap else None, "sha256": digest,
@@ -1076,6 +1156,15 @@ def home_tilde(p) -> str:
     return Path(p).name
 
 
+def write_cost(path: Path, data: dict):
+    """Файл стоимости сессии: перезаписать, только если изменились цифры. Иначе каждая новая сессия (досчёт при старте)
+    меняла бы updated_at в costs/ демо, которые лежат в репозитории (T10)."""
+    old = read_json(path, None)
+    if isinstance(old, dict) and {k: v for k, v in old.items() if k != "updated_at"} ==             {k: v for k, v in data.items() if k != "updated_at"}:
+        return
+    write_json(path, data)
+
+
 def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
     """Стоимость сессии по проектам; файл каждой сессии перезаписывается целиком → без удвоения.
     Сессия разработки агента на проекты не списывается: файл сессии остаётся с usd 0 и причиной
@@ -1084,14 +1173,14 @@ def record_session_costs(transcript: Path, session_id: str) -> dict[str, dict]:
     msgs_by_slug = attribute_messages(transcript_usage(transcript), session_id)
     if reason := dev_session_reason(transcript):
         for slug in sorted(set(msgs_by_slug) | {d.parent.parent.name for d in PROJECTS.glob(f"*/costs/{session_id}.json")}):
-            write_json(PROJECTS / slug / "costs" / f"{session_id}.json",
+            write_cost(PROJECTS / slug / "costs" / f"{session_id}.json",
                        {"usd": 0.0, "messages": 0, "excluded": f"сессия разработки агента: {reason}",
                         "session_id": session_id, "updated_at": now(), "transcript": home_tilde(transcript)})
         return res
     for slug, msgs in msgs_by_slug.items():
         tot = usage_cost(msgs, load_pricing())
         tot.update(session_id=session_id, updated_at=now(), transcript=home_tilde(transcript))
-        write_json(PROJECTS / slug / "costs" / f"{session_id}.json", tot)
+        write_cost(PROJECTS / slug / "costs" / f"{session_id}.json", tot)
         res[slug] = tot
     return res
 
@@ -1158,7 +1247,7 @@ def record_session_cost(p: Path, transcript: Path, session_id: str):
     tot = usage_cost(msgs, load_pricing())
     tot.update(session_id=session_id, updated_at=now(), transcript=home_tilde(transcript))
     # перезапись файла сессии целиком → повторный вызов хука не удваивает стоимость
-    write_json(p / "costs" / f"{session_id}.json", tot)
+    write_cost(p / "costs" / f"{session_id}.json", tot)
     return tot
 
 
@@ -1320,15 +1409,18 @@ def how_markdown(p: Path) -> str:
         for m, v in s.get("by_model", {}).items():
             by_model_msgs[m] = by_model_msgs.get(m, 0) + v.get("messages", 0)
     times = [t for t in (parse_ts(x[0]) for x in jr) if t]
-    span = (max(times) - min(times)) if times else None
     hist = st.get("history", [])
+    # до сдачи отчёта (первый вход в support), а не до последней записи: поздние записи — поддержка и правки (T10)
+    done = next((parse_ts(h["at"]) for h in hist if h.get("stage") == "support"), None)
+    span = ((done or max(times)) - min(times)) if times else None
 
     L = []
     stages = " → ".join(f"{h['stage']} ({h['at'][5:16].replace('T', ' ')})" for h in hist)
     L.append(f"- **Этапы:** {stages or '—'}.")
     if span is not None:
         h, mnt = divmod(int(span.total_seconds() // 60), 60)
-        L.append(f"- **Время:** {h} ч {mnt} мин от создания проекта до последней записи журнала; "
+        L.append(f"- **Время:** {h} ч {mnt} мин от создания проекта до "
+                 f"{'сдачи отчёта (этап support)' if done else 'последней записи журнала'}; "
                  f"сессий агента: {len(sessions)}.")
     st_types = {}
     for s in sources:
@@ -1518,6 +1610,9 @@ def hook_session_start(d):
 
 
 def hook_injection_scan(d):
+    ti = d.get("tool_input") or {}
+    if d.get("tool_name") == "Read" and agent_file(str(ti.get("file_path") or "")):
+        return  # собственные файлы агента (правила, хуки, тесты) — не внешний материал; ложные тревоги в T06, T10
     resp = d.get("tool_response")
     text = json.dumps(resp, ensure_ascii=False) if not isinstance(resp, str) else resp
     hits = sorted({m.group(0)[:80] for rx in INJECTION_RE for m in re.finditer(rx, text, flags=re.I)})
@@ -1913,6 +2008,9 @@ def main(argv=None):
     s = sp.add_parser("allow", help="разрешённые источники: add <домен…> | list ('*' — любые открытые)")
     s.add_argument("action", choices=["add", "list"]); s.add_argument("domains", nargs="*"); s.set_defaults(f=cmd_allow)
 
+    s = sp.add_parser("snapshot", help="снимок страницы дословно в snapshots/ (вид page) — вместо пересказа WebFetch")
+    s.add_argument("url"); s.add_argument("--q", help="вопрос исследования (Qxx) — в имени файла")
+    s.set_defaults(f=cmd_snapshot)
     s = sp.add_parser("input", help="добавить исходный материал в inputs/ (без перезаписи)")
     s.add_argument("action", choices=["add"]); s.add_argument("file"); s.add_argument("--name")
     s.set_defaults(f=cmd_input)

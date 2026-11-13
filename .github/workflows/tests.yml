@@ -1,0 +1,25 @@
+# Тесты агента на трёх ОС: репозиторий должен запускаться у жюри на любой машине (T10).
+name: tests
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  unittest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: unittest (stdlib, без зависимостей)
+        run: python -m unittest discover -s tests -v
+        env:
+          PYTHONIOENCODING: utf-8
+      - name: strat check по демо-проекту — 0 ошибок
+        run: python scripts/strat.py -p demo-app-retention check
+        env:
+          PYTHONIOENCODING: utf-8
