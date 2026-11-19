@@ -63,7 +63,8 @@ def main(argv=None):
     a = ap.parse_args(argv)
     data = list(rows(a.package, a.limit))
     with open(a.out, "w", encoding="utf-8", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=["app", "review_id", "date", "rating", "text", "has_dev_response", "likes"])
+        w = csv.DictWriter(f, fieldnames=["app", "review_id", "date", "rating", "text", "has_dev_response", "likes"],
+                           lineterminator="\n")  # как в git (eol=lf)
         w.writeheader()
         w.writerows(data)
     if not data:
@@ -78,4 +79,6 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    for s in (sys.stdout, sys.stderr):  # консоль Windows (cp1251) не печатает ✓ — как в strat.py
+        s.reconfigure(encoding="utf-8")
     sys.exit(main())

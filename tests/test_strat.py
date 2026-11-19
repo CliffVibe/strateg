@@ -398,6 +398,14 @@ class StratTest(unittest.TestCase):
         self.assertEqual(self.ok("hook", "injection-scan", stdin=json.dumps(own_sh)).strip(), "")
         ext = {"tool_name": "Read", "tool_input": {"file_path": str(self.p / "inputs" / "a.md")}, "tool_response": evil}
         self.assertIn("ДАННЫЕ источника", self.ok("hook", "injection-scan", stdin=json.dumps(ext)))
+        # акт 2 демо: расчётный код агента в work/ содержит шаблоны поиска инструкций — не внешний материал
+        code = {"tool_name": "Read", "tool_input": {"file_path": str(self.p / "work" / "calc" / "themes.py")},
+                "tool_response": evil}
+        self.assertEqual(self.ok("hook", "injection-scan", stdin=json.dumps(code)).strip(), "")
+        # а вывод запуска этого кода по-прежнему проверяется: в нём могут быть тексты отзывов
+        run = {"tool_name": "Bash", "tool_input": {"command": f"python {self.p / 'work' / 'calc' / 'themes.py'}"},
+               "tool_response": evil}
+        self.assertIn("ДАННЫЕ источника", self.ok("hook", "injection-scan", stdin=json.dumps(run)))
 
     def test_how_time_until_report_not_last_entry(self):
         # T10: «Время» в отчёте росло от поздних записей журнала (правки после сдачи): 34 → 41 мин
@@ -576,6 +584,15 @@ class StratTest(unittest.TestCase):
         self.ok("q", "done", "Q02", "--claims", "C003")
         self.ok("claim", "retract", "C003", "--reason", "ошибка расчёта")
         self.assertIn("plan.json Q02: ответ ссылается на недействующие утверждения C003", self.ok("check"))
+
+    def test_check_csv_review_id_is_not_passport(self):
+        # акт 2 демо: strat check принимал 10-значный review_id отзывов RuStore за паспорт
+        (self.p / "inputs").mkdir(exist_ok=True)
+        f = self.p / "inputs" / "reviews.csv"
+        f.write_text("app,review_id,text\nru.x,1234567890,Бот не помогает\n", encoding="utf-8")
+        self.assertNotIn("похоже на паспорт", self.ok("check"))
+        f.write_text("app,review_id,text\nru.x,1234567890,мой паспорт 4510 123456\n", encoding="utf-8")
+        self.assertIn("похоже на паспорт", self.ok("check"))
 
     def test_redact_personal_data_in_snapshot(self):
         # T10: в снимке отзывов остались имена авторов; маскировка — единственное разрешённое изменение снимка

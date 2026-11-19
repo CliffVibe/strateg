@@ -1,0 +1,44 @@
+{
+  "usd": 7.4546629499999995,
+  "input": 290,
+  "output": 191316,
+  "cache_write": 561093,
+  "cache_read": 17198925,
+  "web_searches": 0,
+  "web_fetches": 10,
+  "messages": 135,
+  "by_model": {
+    "claude-opus-5-5": {
+      "usd": 6.7596482,
+      "messages": 97
+    },
+    "claude-haiku-5-5": {
+      "usd": 0.07214535,
+      "messages": 20
+    },
+    "<synthetic>": {
+      "usd": 0.0,
+      "messages": 1
+    },
+    "claude-sonnet-5-5": {
+      "usd": 0.6228693999999999,
+      "messages": 17
+    }
+  },
+  "unpriced_models": [
+    "<synthetic>"
+  ],
+  "by_role": {
+    "main": {
+      "usd": 6.7596482,
+      "messages": 97
+    },
+    "sub": {
+      "usd": 0.6950147499999999,
+      "messages": 38
+    }
+  },
+  "session_id": "cd252968-17e9-4236-a9d6-8781c80b9dca",
+  "updated_at": "2026-11-19T04:58:50+03:00",
+  "transcript": "cd252968-17e9-4236-a9d6-8781c80b9dca.jsonl"
+}

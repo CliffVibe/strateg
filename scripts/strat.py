@@ -970,6 +970,20 @@ PII_RE = [
 ]
 
 
+def csv_without_id_columns(text: str) -> str:
+    """Текст CSV без столбцов-идентификаторов (id, *_id): номера записей — не персональные данные."""
+    import csv
+    import io
+    try:
+        rows = list(csv.reader(io.StringIO(text)))
+    except csv.Error:
+        return text
+    if not rows:
+        return text
+    keep = [i for i, h in enumerate(rows[0]) if not re.fullmatch(r"(?i)(.*[_ ])?id", h.strip())]
+    return "\n".join(",".join(r[i] for i in keep if i < len(r)) for r in rows)
+
+
 def cmd_check(a):
     p = pdir(a.project)
     problems, warnings = [], []
@@ -1061,6 +1075,8 @@ def cmd_check(a):
     for f in (p / "inputs").rglob("*"):
         if f.is_file() and f.suffix.lower() in {".md", ".txt", ".csv", ".json"}:
             t = f.read_text(encoding="utf-8", errors="ignore")
+            if f.suffix.lower() == ".csv":  # акт 2 демо: 10-значный review_id принимался за паспорт — id-столбцы не смотрим
+                t = csv_without_id_columns(t)
             for rx, label in PII_RE:
                 if rx.search(t):
                     warnings.append(f"{f.relative_to(p)}: возможны персональные данные ({label})")
@@ -1468,6 +1484,8 @@ def how_markdown(p: Path) -> str:
     kinds = {}
     for _, k, _ in jr:
         kinds[k] = kinds.get(k, 0) + 1
+    # акт 2 демо: «найденных внедрённых инструкций 10» — все ложные; срабатывание хука — подозрение, а маскировка ПДн — другое
+    inj_hits = sum(1 for _, k, t in jr if k == "security" and "найдены фрагменты" in t)
     cost = cost_totals(p)
     sessions = [s for s in (read_json(f, {}) for f in sorted((p / "costs").glob("*.json"))) if not s.get("excluded")]
     by_model_msgs: dict[str, int] = {}
@@ -1521,7 +1539,8 @@ def how_markdown(p: Path) -> str:
              + f"; решений и подтверждений в журнале {kinds.get('human', 0)}; запросов «ждём человека» "
              f"от `strat stage` {kinds.get('gate', 0)}.")
     L.append(f"- **Маршрутизация и сбои:** эскалаций/смен модели {kinds.get('routing', 0)}, ошибок инструментов "
-             f"{kinds.get('error', 0)}, найденных внедрённых инструкций {kinds.get('security', 0)}.")
+             f"{kinds.get('error', 0)}, срабатываний поиска внедрённых инструкций {inj_hits} (подозрения — проверить по "
+             f"журналу), других записей защиты данных {kinds.get('security', 0) - inj_hits}.")
     models = ", ".join(f"{m} ${v:.2f} ({by_model_msgs.get(m, 0)} отв.)" for m, v in sorted(cost["by_model"].items()))
     budget = st.get("budget_usd")
     L.append(f"- **Стоимость:** ${cost['usd']:.2f}" + (f" из бюджета ${budget}" if budget else "")
@@ -1685,8 +1704,10 @@ def hook_session_start(d):
 
 def hook_injection_scan(d):
     ti = d.get("tool_input") or {}
-    if d.get("tool_name") == "Read" and agent_file(str(ti.get("file_path") or "")):
-        return  # собственные файлы агента (правила, хуки, тесты) — не внешний материал; ложные тревоги в T06, T10
+    fp = str(ti.get("file_path") or "")
+    if d.get("tool_name") == "Read" and (agent_file(fp) or re.search(r"[\\/]projects[\\/][^\\/]+[\\/]work[\\/].+\.py$", fp)):
+        return  # собственные файлы агента (правила, хуки, тесты) и его расчётный код в work/ — не внешний материал;
+        # ложные тревоги в T06, T10 и в акте 2 демо (19.11: шаблоны поиска инструкций в work/calc/review-themes.py)
     if d.get("tool_name") in ("Bash", "PowerShell"):  # cat/Get-Content только файлов агента — то же самое
         files = re.findall(r"[^\s'\"<>|;&]+\.(?:json|md|py|txt|ya?ml)", str(ti.get("command") or ""))
         if files and all(agent_file(x) for x in files):

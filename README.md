@@ -92,7 +92,8 @@ Settings → Agents → Third-Party Imports («Include Third-Party Plugins, Skil
   `python scripts/strat.py cursor-sync --models haiku=<id>,sonnet=<id>,opus=<id>`. Ограничения инструментов субагентов
   (`tools:`) в Cursor нет — они записаны в текст субагента. После правки `.claude/agents/` — `strat cursor-sync`
   (тест следит за расхождением).
-- Проверено в Cursor CLI 2026.11.11 (см. `docs/tasks/T07-portability.md`); окно редактора — по чек-листу там же.
+- Проверено в Cursor CLI 2026.11.11 и в окне Cursor 3 (19.11: хуки, навыки, субагенты видны; запись в `inputs/`
+  запрещена хуком) — см. `docs/tasks/T07-portability.md`.
 - **Стоимость** хук считает только по транскриптам Claude Code (а `stop` в `agent -p` Cursor не вызывает). Работу в Cursor записывайте вручную в
   `projects/<slug>/costs/cursor.manual.jsonl` (`{"what": "Cursor, сессия …", "usd": …}`) по данным Cursor Usage.
   Бюджет-стоп считает только то, что записано.
