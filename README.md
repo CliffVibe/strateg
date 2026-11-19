@@ -15,7 +15,7 @@
 | Демо: стратегии и план проверки | [`projects/demo-app-retention/work/`](projects/demo-app-retention/work/) — ситуация, варианты, продуктовая и коммуникационная стратегии, план проверки |
 | Демо: доказательная база | реестры `sources.jsonl`, `claims.jsonl`, `decisions.jsonl`, снимки страниц `snapshots/`, журнал `journal.md`, стоимость `costs/` |
 | Вторая задача (другая область, основной агент на Sonnet) | [`projects/esim-travel/report.md`](projects/esim-travel/report.md) — «кому и как продавать eSIM для поездок» |
-| Видео работы агента | ссылка будет добавлена при сдаче |
+| Видео работы агента (8:55, без звука) | [Яндекс Диск](https://disk.yandex.ru/i/V-sNgc6ZSItTyw) — акт 1: запрос → варианты → стратегия → перерыв и «продолжим»; акт 2: пересмотр по новым данным |
 | Сравнение с обычным чатом (две задачи, слепая проверка фактов) | [`eval/results.md`](eval/results.md) |
 | Как делали: журнал, ошибки ИИ | [`docs/process/journal.md`](docs/process/journal.md), [`docs/process/ai-errors.md`](docs/process/ai-errors.md) |
 

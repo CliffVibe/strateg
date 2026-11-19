@@ -1,7 +1,8 @@
 # Стратег продукта — описание работы
 
 ИИ-агент для руководителя цифрового продукта. Конкурс «Стратег Фабрики продуктов» (МегаФон), ноябрь 2026.
-Репозиторий: https://github.com/CliffVibe/strateg · демо-проект: `projects/demo-app-retention`.
+Репозиторий: https://github.com/CliffVibe/strateg · демо-проект: `projects/demo-app-retention` ·
+видео работы агента (8:55, без звука): https://disk.yandex.ru/i/V-sNgc6ZSItTyw
 
 ## 0. В двух словах
 
